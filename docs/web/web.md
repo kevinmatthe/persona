@@ -1719,7 +1719,10 @@ resumes the conversation's earlier session of it.
   longer lists the sessions it names. An old link to one of them (`/s/<machine>/<old id>`; links in the sidebar search,
   the Inbox, to-dos) opens the conversation's row (`engineSwitchHome` in `lib/engine-switch.ts`, after the child-session
   redirect in `App.tsx`). On a paging hub that lists neither row, the old link opens the old session on its own.
-- **The chat reads as one conversation** (`views/chat/useEarlierStretches.ts`, `views/chat/EarlierStretches.tsx`): above the
+- **The chat reads as one conversation** (`views/chat/useEarlierStretches.ts` on the first screen: the stretch windows and
+  the live stretch's split; `views/chat/EarlierStretches.tsx` with `lib/engine-stretches.ts`, loaded only for a row with
+  `engine_history`: reading, planning and drawing the earlier stretches, which it hands back to the chat before paint;
+  their words and the handoff panel's, `views/chat/EngineHandoffPanel.tsx`, are in the lazy `chat-engine` namespace): above the
   live session's messages, each earlier stretch's, oldest first, with the switch divider at the start of each later
   stretch (its first message carries the handoff block; "Engine switch divider" under "Chat" above). Stretch i is session
   `engine_history[i]`'s messages after the stretch before it ended and up to its own `until`; the live stretch is what
