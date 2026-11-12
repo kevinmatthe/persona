@@ -217,6 +217,9 @@ def phone(browser, base, hub, token, shots):
     width = page.evaluate("document.documentElement.scrollWidth")
     assert width <= 390, f"the link view scrolls sideways at 390 px ({width})"
     d.get_by_role("button", name="Cancel").click()
+    # a sheet steps back out of its own history entry as it closes: let that land before going on
+    expect(d).to_be_hidden()
+    page.wait_for_timeout(500)
     r.open_models()
     page.get_by_text("gw_full", exact=True).first.click()
     page.get_by_role("dialog").first.get_by_role("button", name="More").click()
