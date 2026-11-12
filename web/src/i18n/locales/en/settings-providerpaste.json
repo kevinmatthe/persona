@@ -22,5 +22,13 @@
   "key_hint": "Opens {name} with the pasted key. Its models and other settings stay.",
   "new": "Add as a new provider",
   "new_hint": "Starts a new provider with what was read.",
-  "provider_missing": "Couldn't open {name}: it's no longer among your providers."
+  "provider_missing": "Couldn't open {name}: it's no longer among your providers.",
+  "format_link": "Read as an import link.",
+  "link_title": "Opened from a link",
+  "link_hint": "Check what it adds. Nothing is saved until you press Save.",
+  "link_paste_instead": "Paste something else",
+  "link_reading": "Reading the link…",
+  "link_nothing": "Nothing in this link can be added.",
+  "link_hub_old": "This hub can't open import links yet. Update it, then open the link again.",
+  "link_read_failed": "Couldn't read the link: {error}."
 }

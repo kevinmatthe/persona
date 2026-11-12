@@ -10,6 +10,7 @@ import { navigationCrumb } from "./lib/error-reports";
 import { lazyPage, preloadPages } from "./lib/lazy-page";
 import { drawerA11y, focusBack, useDrawerDrag } from "./lib/drawer";
 import { acceptHubs, here, rememberHub, takeHubs } from "./lib/hubs";
+import { holdImportLink, takeImportLink } from "./lib/import-link";
 import { useSessionPanels } from "./lib/panel-memory";
 import { paneRoute, resolveTab, tabOfSessionLink, tabPagePane } from "./lib/herdr-tree";
 import { askTeamWorker, isWorker } from "./lib/team";
@@ -92,6 +93,21 @@ const carried = typeof window === "undefined" ? null : takeHubs(window.location.
 if (carried) {
   acceptHubs(carried.hubs, carried.removed);
   window.history.replaceState(window.history.state, "", carried.rest);
+}
+
+// A provider import link (`/settings?tab=models#import=…`, #5420) may hold a key: it leaves the address bar the same way,
+// before anything else runs (the Back list, bookmarks, a link copied from the address bar), and waits in memory until
+// Settings › Model providers opens Add on it (lib/import-link.ts). Opened in a tab already on that page (pasted into
+// its address bar), only the fragment changes and nothing loads: it is taken then, its history entry replaced.
+function takeImportLinkHere() {
+  const importing = takeImportLink(window.location.href);
+  if (!importing) return;
+  window.history.replaceState(window.history.state, "", importing.rest);
+  holdImportLink(importing.text);
+}
+if (typeof window !== "undefined") {
+  takeImportLinkHere();
+  window.addEventListener("hashchange", takeImportLinkHere);
 }
 
 const workspaceActions = { onWorkspaceMenu: openWorktreeActions };

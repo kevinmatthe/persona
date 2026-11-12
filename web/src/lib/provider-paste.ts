@@ -1,8 +1,8 @@
 // Settings › Model providers › Add (#5193): the wizard's two other ways to start. "Paste a configuration" sends the text
 // to POST /api/v1/launchers/import/parse, which reads a shell alias / export / .env, Claude Code's settings.json, a curl
-// command or a cindy v1 provider JSON into drafts (a POST /launchers body each, the stored providers on the same address,
-// and notes about what it could not use); a draft prefills the wizard, or opens a stored provider's edit wizard with its
-// models or its key. "Found on your computers" lists the rc-file aliases that reach a gateway and are not in Persona yet;
+// command, a cindy v1 provider JSON or a provider import link (cindy's, or the web's #import=, #5420) into drafts (a
+// POST /launchers body each, the stored providers on the same address, and notes about what it could not use); a draft
+// prefills the wizard, or opens a stored provider's edit wizard with its models or its key. "Found on your computers" lists the rc-file aliases that reach a gateway and are not in Persona yet;
 // one opens the import preview (#5057) for that alias alone. Pure: views/settings/ProviderPaste.tsx and
 // ProviderWizard.tsx render it.
 import { managedProvider } from "./compatibility";
@@ -16,7 +16,7 @@ import { t } from "../i18n";
 export const PASTE_FEATURE = "launcher_import_parse";
 
 /** What the parse route read the text as; "" when nothing in it was recognized. */
-export type PasteFormat = "shell" | "settings" | "curl" | "cindy" | "";
+export type PasteFormat = "shell" | "settings" | "curl" | "cindy" | "link" | "";
 
 /** Something the hub could not use, by code (the client says it in words): `line` is 1-based in the pasted text, `name`
  *  an alias, variable, header, option, protocol or kind, never a value. */
@@ -80,6 +80,8 @@ export interface PasteState {
   draft: number;
   /** What the user picked Continue to do; null: the chosen draft's default (defaultAction). */
   action: PasteAction | null;
+  /** `text` is an import link this page was opened with (#5420): read at once and never shown. */
+  link?: boolean;
 }
 
 export const newPaste = (): PasteState => ({ text: "", result: null, draft: -1, action: null });
@@ -224,6 +226,15 @@ export function noteText(n: PasteNote): string {
       return name ? t("lib-provider-paste.cindy_endpoint", { name }) : t("lib-provider-paste.cindy_endpoint_unknown");
     case "too_many":
       return t("lib-provider-paste.drafts_limit", { max: MAX_DRAFTS });
+    // an import link is used whole or not at all (#5420): `name` is where in it, never a value
+    case "link_invalid":
+      return name ? t("lib-provider-paste.link_invalid_at", { name }) : t("lib-provider-paste.link_invalid");
+    case "link_version":
+      return name ? t("lib-provider-paste.link_version", { name }) : t("lib-provider-paste.link_version_unknown");
+    case "link_too_long":
+      return t("lib-provider-paste.link_too_long");
+    case "link_field":
+      return name ? t("lib-provider-paste.link_field", { name }) : t("lib-provider-paste.link_field_unknown");
   }
   return line ? t("lib-provider-paste.other_line", { line }) : t("lib-provider-paste.other");
 }
