@@ -1,7 +1,7 @@
 import XCTest
 
 /// A pack's uninstall confirmation keeps both of its buttons on one line at every text size (#5201): the system's dialog
-/// ignores `lineLimit`, so the words are short. Against scripts/mock/mock_hub.py with MOCK_EXTENSIONS=1
+/// ignores `lineLimit`, so the words are short, and the two buttons are the same height. Against scripts/mock/mock_hub.py with MOCK_EXTENSIONS=1
 /// MOCK_EXTENSION_PACK=1 (`TEST_RUNNER_PERSONA_EXTENSION_PACK_HUB=http://127.0.0.1:<port>`), in zh-Hans and English, at the
 /// default and the largest accessibility text size, light and dark; `TEST_RUNNER_PERSONA_SHOTS=<dir>` keeps the screenshots
 /// (`pack-labels-<language>-<size>-<scheme>.png`). `TEST_RUNNER_PERSONA_PHASE=before` takes the same screenshots on an older
@@ -49,13 +49,13 @@ final class ExtensionPackUninstallLabelTests: XCTestCase {
             XCTAssertTrue(all.waitForExistence(timeout: 5), "the confirmation")
             sleep(1)
             if !before {
-                // One line each: as tall as Cancel, whose word is short in every language.
-                let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch // i18n-ignore
-                XCTAssertTrue(cancel.exists, "Cancel")
-                for button in [only, all] {
-                    XCTAssertEqual(button.frame.height, cancel.frame.height, accuracy: 2,
-                                   "\(button.label) at \(size) in \(language) is not one line")
-                }
+                // The dialog has no Cancel (a popover; tapping outside closes it), so the two buttons are measured
+                // against each other: the same height. Before #5201 the longer one took a line more (zh-Hans one and
+                // two lines, English two and three); both wrapping alike is ruled out by the words' measured widths
+                // and the screenshots.
+                XCTAssertTrue(only.exists, "Pack Only")
+                XCTAssertEqual(only.frame.height, all.frame.height, accuracy: 2,
+                               "\(only.label) / \(all.label) at \(size) in \(language): not the same number of lines")
             }
             if let dir = env["PERSONA_SHOTS"] {
                 try? XCUIScreen.main.screenshot().pngRepresentation
