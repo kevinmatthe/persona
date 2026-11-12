@@ -2,7 +2,7 @@
 // moves the conversation to the other engine (Claude Code ↔ Codex), in Cindy's confirmation layout and words
 // (confirm-dialog.tsx, agentSwitchConfirmation.ts) drawn with Persona's Dialog and Button: the title, why a handoff may
 // lose something, "Don't remind me again", then Switch Agent before Keep Current Agent. Keep Current Agent, Escape, the
-// backdrop and Back (a phone's sheet) all keep things as they were. Which picks ask is lib/engine-switch.ts.
+// backdrop and Back (a phone's sheet) all keep things as they were. Which picks ask is lib/engine-switch-ask.ts.
 import { useId, useState } from "react";
 import { t } from "../../i18n";
 import { Button, Dialog } from "../../ui/atoms";
