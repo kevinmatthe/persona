@@ -134,9 +134,9 @@ class ChatHeaderFoldShotsTest {
     }
 
     /** Open, then scrolled back into the history and toward the newest again. */
-    private fun openAndFolded(style: AppStyle, dark: Boolean) {
+    private fun openAndFolded(style: AppStyle, dark: Boolean, suffix: String = "") {
         page(style, dark)
-        val name = "${style.name.lowercase()}-${if (dark) "dark" else "light"}"
+        val name = "${style.name.lowercase()}-${if (dark) "dark" else "light"}$suffix"
         save(rule.onNodeWithTag("page").captureToImage().asAndroidBitmap(), "header-open-$name")
         val list = rule.onNode(hasScrollToIndexAction() and androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
         list.performTouchInput { swipeDown() }
@@ -152,6 +152,10 @@ class ChatHeaderFoldShotsTest {
     @Test fun briefDark() = openAndFolded(AppStyle.Brief, dark = true)
     @Test fun boardLight() = openAndFolded(AppStyle.Board, dark = false)
     @Test fun boardDark() = openAndFolded(AppStyle.Board, dark = true)
+
+    /** The largest text: the slim bar's title is cut short, its capsule keeps its middle place. */
+    @Config(fontScale = 2f)
+    @Test fun glassLargeText() = openAndFolded(AppStyle.Glass, dark = false, suffix = "-large")
 
     /** A tap on Glass's title: Session Info (main opened the status sheet). A sheet keeps its first frame: a test each. */
     private fun titleTap(dark: Boolean) {

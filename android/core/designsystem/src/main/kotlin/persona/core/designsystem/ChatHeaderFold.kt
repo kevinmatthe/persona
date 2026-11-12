@@ -1,6 +1,5 @@
 package persona.core.designsystem
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -84,7 +82,9 @@ fun JFoldingHeader(
         onRange(range)
         val p = progress().coerceIn(0f, 1f)
         val folded = (range * p).roundToInt()
-        layout(constraints.maxWidth, max(openHeight - folded, slimHeight)) {
+        // Larger text makes the slim bar taller than its least height: then it takes what it needs.
+        val slimNeeds = slimmed.maxOfOrNull { it.height } ?: 0
+        layout(constraints.maxWidth, maxOf(openHeight - folded, slimHeight, slimNeeds)) {
             opened.forEach { it.placeWithLayer(0, -folded) { alpha = 1f - min(1f, progress().coerceIn(0f, 1f) * FullFade) } }
             slimmed.forEach { it.placeWithLayer(0, 0) { alpha = max(0f, (progress().coerceIn(0f, 1f) - 0.5f) * 2f) } }
         }
@@ -100,7 +100,7 @@ private fun Modifier.takesNoTouches(): Modifier = pointerInput(Unit) {
 }
 
 /**
- * The folded header (iOS `compactChrome`): back, and in the middle a capsule with the agent's mark, the state's dot and
+ * The folded header (iOS `compactChrome`): back, and in the middle a glass capsule with the agent's mark, the state's dot and
  * the [title], or while the hub is out of reach a spinner and [linkText]; a tap on the capsule opens the header again
  * ([onOpen], said as [openLabel]). Nothing on the right: a space as wide as back keeps the capsule in the middle.
  */
@@ -116,15 +116,16 @@ fun ChatSlimBar(
     linkText: String? = null,
 ) {
     val palette = PersonaTheme.palette
-    Row(modifier.fillMaxWidth().statusBarsPadding().height(Tokens.Size.slimBar).padding(horizontal = Tokens.Space.xs),
+    Row(modifier.fillMaxWidth().statusBarsPadding().heightIn(min = Tokens.Size.slimBar).padding(horizontal = Tokens.Space.xs),
         verticalAlignment = Alignment.CenterVertically) {
         val side = Modifier.width(Tokens.MinTouch.android)
         if (onBack != null) JIconButton(persona.core.designsystem.icons.PersonaIcons.back, stringResource(R.string.designsystem_back), onBack, side, raised = false)
         else Spacer(side)
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Row(
-                Modifier.heightIn(min = Tokens.Size.wellXS).clip(CircleShape)
-                    .background(if (palette.dark) Tokens.Common.Dark.Fill.chip else Tokens.Common.Light.Fill.chip)
+                // The open header's floating glass, as `JLinkPill`: iOS's chip fill sits on its bar's material, and
+                // the chat here has no bar behind the header, only the page's fading edge.
+                Modifier.heightIn(min = Tokens.Size.wellXS).floatingSurface(CircleShape).clip(CircleShape)
                     .clickable(role = Role.Button, onClick = onOpen).semantics(mergeDescendants = true) { contentDescription = openLabel }
                     .padding(horizontal = Tokens.Space.m),
                 verticalAlignment = Alignment.CenterVertically,
