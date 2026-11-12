@@ -27,6 +27,12 @@ describe("a page opened with an import link", () => {
     expect(location.pathname + location.search + location.hash).toBe("/settings?tab=models");
     expect(history.length).toBe(before + 1);
     expect(importLinkHeld()).toBe(`${location.origin}/settings?tab=models#import=eyJr`);
+    // pasted over another page: the router goes to Model providers, which opens Add on it
+    dropImportLink();
+    history.pushState(null, "", "/overview#import=eyJs");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(location.pathname + location.search + location.hash).toBe("/settings?tab=models");
+    expect(importLinkHeld()).toBe(`${location.origin}/overview#import=eyJs`);
     // a fragment of the page's own is left alone
     dropImportLink();
     history.pushState(null, "", "/settings?tab=models#settings-providers");

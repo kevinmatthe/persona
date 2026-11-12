@@ -2,8 +2,9 @@
 // to POST /api/v1/launchers/import/parse, which reads a shell alias / export / .env, Claude Code's settings.json, a curl
 // command, a cindy v1 provider JSON or a provider import link (cindy's, or the web's #import=, #5420) into drafts (a
 // POST /launchers body each, the stored providers on the same address, and notes about what it could not use); a draft
-// prefills the wizard, or opens a stored provider's edit wizard with its models or its key. "Found on your computers" lists the rc-file aliases that reach a gateway and are not in Persona yet;
-// one opens the import preview (#5057) for that alias alone. Pure: views/settings/ProviderPaste.tsx and
+// prefills the wizard, or opens a stored provider's edit wizard with its models or its key. "Found on your computers"
+// lists the rc-file aliases that reach a gateway and are not in Persona yet; one opens the import preview (#5057) for
+// that alias alone. Pure: views/settings/ProviderPaste.tsx and
 // ProviderWizard.tsx render it.
 import { managedProvider } from "./compatibility";
 import { byReason, formFromView, formModel, names, newForm, type ProviderForm, type ProviderModel, type ProviderView, type SkipReason } from "./providers";

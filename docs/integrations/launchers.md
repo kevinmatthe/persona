@@ -378,13 +378,13 @@ A Persona-managed provider has two names. `name` is its **startup ID**: ASCII (`
 ## Import links (#5420)
 
 A provider can travel as a link: a gateway's key page offers one to its signed-in user, or someone shares a provider
-they already have. The payload is cindy's v1 provider import JSON (cindy's `docs/provider-import-links.md`), so one
+they already have. The payload is cindy's v1 provider import JSON (the format cindy documents for its import links), so one
 payload works in both apps. Persona reads two carriers:
 
 - **Persona's web link**: `<web address>/settings?tab=models#import=<data>`, optionally with `&v=1` in the fragment.
   The data sits after `#`, so the browser never sends it to the hub and it is in no access log. At load the web takes
   the fragment out of the address bar and the Back list before anything else runs (`takeImportLink` in
-  `web/src/lib/provider-link.ts`, called beside `takeToken` in `App.tsx`), keeps the link in memory only, and opens
+  `web/src/lib/import-link.ts`, called beside `takeToken` in `App.tsx`), keeps the link in memory only, and opens
   Settings › Model providers › Add on the paste view in its link mode, which sends the link to
   `POST /api/v1/launchers/import/parse` as `{text}`. A browser's own history may still have recorded the address when
   it was opened; that is one reason a copied link carries no key unless the user puts one in.
@@ -404,10 +404,12 @@ checks a link as cindy does and refuses the whole link on the first problem, wit
 | a field v1 does not define (a batch `{providers}` is a file's, not a link's) | `link_field`, with its path when that is a plain word |
 | a value v1 refuses: `kind`, `name` (60 at most), `endpoints` (1 to 8), `protocol`, an http(s) `baseUrl` without a user, query or fragment, `modelsUrl` on the same origin, `requestPath`, `targets`, models (256 at most, distinct, thinking levels only with `reasoning`), headers (24 at most, only with an API key), keys (4 KiB at most, 1 KiB for a built-in slot, no line breaks or control characters), no sign-in only on loopback addresses, two endpoints tied for one agent | `link_invalid`, with the field's path |
 
-A note names a field's path, a parameter or a version, never a value. A link that passes is read as a pasted cindy
+A note names a field's path, a parameter or a version, never a value: an unknown field whose name is no plain word,
+or starts like a service's key (`sk-`, `ghp_`…), goes unnamed. A link that passes is read as a pasted cindy
 provider is (`docs/assistant/model-config.md`, “Starting a provider from a pasted configuration”), with
 `format: "link"`: `preset`, `builtin` and OAuth links are valid but noted (`cindy_kind`, `cindy_auth`), and nothing is
-saved until the user presses Save in the wizard. A Messages endpoint's draft names no sign-in method, since v1 does not
+saved until the user presses Save in the wizard. A link without any key does not note `no_key` on its draft: typing
+one's own key is what such a link expects. A Messages endpoint's draft names no sign-in method, since v1 does not
 say which header a gateway takes: the wizard's own check finds it (“Authentication method”). The shared cases are in
 `spec/fixtures/provider-import-link/cases.json`.
 
@@ -416,7 +418,8 @@ has **⋯ › Copy import link** (web). The web builds the payload from the prov
 (`linkPayload` in `web/src/lib/provider-link.ts`): `kind: custom`, the display name (cut to 60), one endpoint on the
 stored Base URL (`anthropic-messages` for a gateway or a Messages API, `openai-responses`, `openai-chat`) and the models
 with the default first, with their names, context windows and thinking levels (only their IDs, then none, when the list
-would pass 256 models or 24 KiB). Headers, environment, proxy, tiers and the device scope stay behind. Codex,
+would pass 256 models, 24 KiB of JSON or 32 KiB of fragment; a model with an empty, overlong or repeated ID, or a
+thinking level cindy doesn't know, is left out rather than have the link refused). Headers, environment, proxy, tiers and the device scope stay behind. Codex,
 Antigravity and omp launchers have no v1 endpoint that reads back as themselves, so they offer no link.
 
 The link carries no key by default: whoever opens it types their own. The hub never returns a stored key to any client,

@@ -11,6 +11,7 @@ import { lazyPage, preloadPages } from "./lib/lazy-page";
 import { drawerA11y, focusBack, useDrawerDrag } from "./lib/drawer";
 import { acceptHubs, here, rememberHub, takeHubs } from "./lib/hubs";
 import { holdImportLink, takeImportLink } from "./lib/import-link";
+import { stripBase } from "./lib/base";
 import { useSessionPanels } from "./lib/panel-memory";
 import { paneRoute, resolveTab, tabOfSessionLink, tabPagePane } from "./lib/herdr-tree";
 import { askTeamWorker, isWorker } from "./lib/team";
@@ -99,15 +100,18 @@ if (carried) {
 // before anything else runs (the Back list, bookmarks, a link copied from the address bar), and waits in memory until
 // Settings › Model providers opens Add on it (lib/import-link.ts). Opened in a tab already on that page (pasted into
 // its address bar), only the fragment changes and nothing loads: it is taken then, its history entry replaced.
-function takeImportLinkHere() {
+function takeImportLinkHere(loading: boolean) {
   const importing = takeImportLink(window.location.href);
   if (!importing) return;
-  window.history.replaceState(window.history.state, "", importing.rest);
+  // on an open page another address goes through the router, or it would go on showing the page the link was pasted
+  // over (navigate does nothing for the same address, whose fragment is all that goes)
+  if (loading || importing.rest === location.pathname + location.search) window.history.replaceState(window.history.state, "", importing.rest);
+  else navigate(stripBase(importing.rest), true);
   holdImportLink(importing.text);
 }
 if (typeof window !== "undefined") {
-  takeImportLinkHere();
-  window.addEventListener("hashchange", takeImportLinkHere);
+  takeImportLinkHere(true);
+  window.addEventListener("hashchange", () => takeImportLinkHere(false));
 }
 
 const workspaceActions = { onWorkspaceMenu: openWorktreeActions };
