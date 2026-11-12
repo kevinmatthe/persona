@@ -24,7 +24,7 @@ LINK="$SOURCE/apple/PersonaLink/build/Persona Link.app"
 /usr/libexec/PlistBuddy -c "Set CFBundleVersion $PERSONA_RELEASE_VERSION_CODE" "$LINK/Contents/Info.plist"
 codesign --force --sign - "$LINK"
 for binary in "$LINK/Contents/MacOS/PersonaLink" "$LINK/Contents/Helpers/persona-link" "$LINK/Contents/Helpers/persona-node"; do
-  lipo -verify_arch arm64 x86_64 "$binary"
+  lipo "$binary" -verify_arch arm64 x86_64
   codesign --verify --strict "$binary"
 done
 codesign --verify --strict "$LINK"
@@ -59,7 +59,7 @@ xcodebuild -project apple/Persona.xcodeproj -scheme PersonaMac -configuration Re
   PERSONA_BUNDLE_ID=cn.kmhomelab.persona.mac \
   MARKETING_VERSION="$PERSONA_MAC_VERSION" CURRENT_PROJECT_VERSION="$PERSONA_RELEASE_VERSION_CODE" build
 APP="$DERIVED/Build/Products/Release/Persona.app"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/Persona"
+lipo "$APP/Contents/MacOS/Persona" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$APP"
 codesign -d --entitlements - "$APP" > "$RUNNER_TEMP/persona-final-entitlements.plist"
 python3 - "$RUNNER_TEMP/persona-final-entitlements.plist" <<'PY'
