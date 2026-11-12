@@ -96,3 +96,19 @@ jobs:
             args+=(--prerelease)
           fi
           gh release create "$RELEASE_TAG" "${args[@]}"
+  clients:
+    needs: publish
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    # A Release created with GITHUB_TOKEN does not trigger another workflow.
+    # Call client packaging explicitly after the tag's server release exists.
+    uses: ./.github/workflows/client-release.yml
+    permissions:
+      contents: write
+    with:
+      source_ref: ${{ github.ref_name }}
+      release_tag: ${{ github.ref_name }}
+      platform: all
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
