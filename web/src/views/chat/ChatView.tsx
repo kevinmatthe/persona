@@ -87,6 +87,8 @@ import { NavRail } from "./NavRail";
 import { useChatScrollbar } from "./useChatScrollbar";
 import { ChatLineView, closedRecap, closeRecap, OpenRecapLine } from "./Lines";
 import { useTranscript } from "./useTranscript";
+import { useEarlierStretches } from "./useEarlierStretches";
+import { EarlierStretches } from "./EarlierStretches";
 import { ArchiveCloseDialog, CloseAgentDialog, DeleteSessionDialog, HeaderModeButton, ModeChips, RenameDialog, RenameSpaceDialog, SessionInfoDialog } from "./SessionDialogs";
 import { showsInHeader } from "../../lib/header-mode";
 import { archiveItems } from "../AgentMenus";
@@ -259,6 +261,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const delegated = useStore((s) => Object.values(s.delegated).filter((d) => ownCard(d.ix)));
   // the list as pushed: its updated_at and rev are what tell the page it fell behind (useTranscript)
   const tr = useTranscript(mid, sid, { starting: Boolean(launching), updatedAt: session?.updated_at, rev: session?.rev, cache: mainCache, assistant });
+  // a conversation that moved between Claude Code and Codex (#5054): its earlier sessions read above the live one, as
+  // one conversation; without engine_history this is the transcript as it is
+  const earlier = useEarlierStretches(mid, sid, assistant ? undefined : session?.engine_history, tr);
   const trNow = useRef(tr);
   trNow.current = tr;
   const railChat = useRef(`${mid}/${sid}`);
@@ -667,7 +672,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
       el.scrollTop = el.scrollHeight;
       if (tr.items.length) first.current = false;
     }
-  }, [tr.items, pending, outbox, tr.streaming, interactions.length]);
+  }, [tr.items, earlier.stretches, pending, outbox, tr.streaming, interactions.length]);
 
   // A card that unfolds (#1124): following holds off for UNFOLD_PAUSE while the clicked row stays where it was on
   // screen (anchoredScroll), then picks up again if the end is still near; a long card opened at the end stays put to
@@ -822,9 +827,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
 
   const loadEarlierNearTop = () => {
     const el = scroller.current;
-    if (!el || el.scrollTop >= 300 || !tr.hasMore || tr.loadingEarlier || first.current) return;
+    if (!el || el.scrollTop >= 300 || !earlier.hasMore || earlier.loadingEarlier || first.current) return;
     before.current = { h: el.scrollHeight, top: el.scrollTop };
-    void tr.loadEarlier().finally(() => {
+    void earlier.loadEarlier().finally(() => {
       // nothing came: forget the anchor
       requestAnimationFrame(() => (before.current = null));
     });
@@ -850,7 +855,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   useEffect(() => {
     loadEarlierNearTop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tr.items, tr.hasMore, tr.loadingEarlier]);
+  }, [tr.items, earlier.stretches, earlier.hasMore, earlier.loadingEarlier]);
 
   const toEnd = () => {
     const el = scroller.current;
@@ -1057,8 +1062,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   // the main conversation folds rounds it did not start from the user (docs/assistant/assistant.md "Background rounds")
   const foldBackground = useStore((s) => s.assistant?.main_background_folded) !== false && isMain;
   const lines = useMemo(
-    () => stabilizeLines(lastLines.current, chatLines(tr.items, { live: lastLive && !outgoing, background: foldBackground })),
-    [tr.items, lastLive, outgoing, foldBackground],
+    () => stabilizeLines(lastLines.current, chatLines(earlier.liveItems, { live: lastLive && !outgoing, background: foldBackground })),
+    [earlier.liveItems, lastLive, outgoing, foldBackground],
   );
   lastLines.current = lines;
   // the last two exchanges are always drawn (the one going on, the one just done); those before them skip drawing while
@@ -1553,14 +1558,14 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
               </div>
             ) : <div role="alert" className="rounded-control bg-inset px-3 py-2 text-[13px] text-red">{t("chat-chatview.start_failed", { error: session.start_error })}</div>)}
             {starting && !tr.loading && !outgoing && <Loading label={t("chat-chatview.starting_agent")} />}
-            {tr.loadingEarlier && (
+            {earlier.loadingEarlier && (
               <div className="flex justify-center py-2">
                 <Loading label={t("chat-chatview.loading_earlier")} />
               </div>
             )}
             {/* also over a chat whose first page came back empty (#2450): it reads as loaded and empty, not as still loading;
                 not under a notice that the chat's details are missing */}
-            {((!tr.hasMore && !tr.loading && (tr.items.length > 0 || (!tr.error && !starting && !session?.start_error && !noDetails))) || opening) && <div className="text-center text-[11.5px] text-ink-3">{session?.cwd && !assistant ? t("chat-chatview.started_in", { path: shortPath(session.cwd) }) : t("chat-chatview.chat_start")}</div>}
+            {((!earlier.hasMore && !tr.loading && (tr.items.length > 0 || earlier.stretches.length > 0 || (!tr.error && !starting && !session?.start_error && !noDetails))) || opening) && <div className="text-center text-[11.5px] text-ink-3">{session?.cwd && !assistant ? t("chat-chatview.started_in", { path: shortPath(session.cwd) }) : t("chat-chatview.chat_start")}</div>}
             {opening && <DayLine date={startOfDay(Date.now())} />}
             {tr.loading && !tr.items.length && !opening && (
               <div className="flex justify-center py-16">
@@ -1578,6 +1583,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
             <LiveClockContext.Provider value={countClock}>
             <ChatContext.Provider value={ctx}>
               <CardConversation.Provider value={assistant ? sid : ""}>
+              {!assistant && <EarlierStretches mid={mid} stretches={earlier.stretches} error={earlier.error} onRetry={earlier.retry} offscreen={offscreen} />}
               {assistant
                 ? displayLines(lines, feed, tr.hasMore ? loadedFrom(tr.items) : undefined).flatMap((d) => [
                     ...failedBefore(d.kind === "chat" ? d.id : ""),
