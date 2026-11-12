@@ -131,6 +131,10 @@
     <plurals name="designsystem_tab_agents">
         <item quantity="other">%1$d個のエージェント</item>
     </plurals>
+    <string name="designsystem_space_card_starter">%1$s・起動元</string>
+    <plurals name="designsystem_space_card_pending">
+        <item quantity="other">%1$s・未処理%2$d件</item>
+    </plurals>
     <string name="designsystem_group_expand">グループを展開</string>
     <string name="designsystem_group_collapse">グループを折りたたむ</string>
     <string name="designsystem_show_all">すべて表示（%1$d件）</string>
@@ -150,6 +154,15 @@
     <string name="designsystem_collapse_named">%1$sを折りたたむ</string>
     <plurals name="designsystem_idle_more">
         <item quantity="other">ほかに待機中%1$d件</item>
+    </plurals>
+    <plurals name="designsystem_idle_count">
+        <item quantity="other">アイドル%1$d件</item>
+    </plurals>
+    <plurals name="designsystem_idle_hide">
+        <item quantity="other">アイドルの%1$d個を折りたたむ</item>
+    </plurals>
+    <plurals name="designsystem_idle_show">
+        <item quantity="other">アイドル中の%1$d個のエージェントを展開</item>
     </plurals>
     <string name="designsystem_folded">折りたたみ済み</string>
     <string name="designsystem_attachment_uploading">アップロード中</string>
