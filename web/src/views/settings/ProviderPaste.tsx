@@ -127,7 +127,8 @@ export function ProviderPaste({ paste, setPaste }: { paste: PasteState; setPaste
           {error.retry && <LineAction onClick={() => void read(paste.text, ++seq.current)}>{t("settings-providerwizard.retry")}</LineAction>}
         </div>
       ) : (
-        answer && !stale && FORMAT[answer.format] && <p role="status" className="text-[12px] text-ink-2">{FORMAT[answer.format]!()}</p>
+        // a link's own line above already says what it is
+        answer && !stale && !paste.link && FORMAT[answer.format] && <p role="status" className="text-[12px] text-ink-2">{FORMAT[answer.format]!()}</p>
       )}
       {answer && (
         <div className={cx("flex flex-col gap-3", stale && "opacity-60")}>

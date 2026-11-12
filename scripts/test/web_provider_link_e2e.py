@@ -105,22 +105,30 @@ def open_link(r):
     expect(d.get_by_text("Opened from a link")).to_be_visible()
     expect(d.get_by_role("textbox", name="Paste a configuration")).to_have_count(0)
     expect(d.get_by_text("Example Gateway").first).to_be_visible()
-    expect(d.get_by_text("Read as an import link.")).to_be_visible()
-    assert len(r.log()["parse"]) == parses + 1, "the link was not read once"
+    expect(d.get_by_text("Read as an import link.")).to_have_count(0)
+    # once (twice under the dev server's StrictMode, the first answer dropped)
+    read = len(r.log()["parse"]) - parses
+    assert read in (1, 2), f"the link was read {read} times"
     r.shot("open")
-    ok("opening a link cleans the address bar and opens Add provider on the link view, read once")
+    ok("opening a link cleans the address bar and opens Add provider on the link view, read at once")
     d.get_by_role("button", name="Continue").click()
     expect(d.get_by_label("Display name")).to_have_value("Example Gateway")
     expect(d.get_by_label("URL")).to_have_value("https://gateway.example.invalid")
+    # the link brings no key: whoever opens it types their own
+    key = d.get_by_label("API Key", exact=False).first
+    expect(key).to_have_value("")
+    key.fill("FAKE-OWN-KEY-0001")
     r.shot("connect")
     d.get_by_role("button", name="Next").click()
-    expect(d.get_by_text("example-opus").first).to_be_visible()
+    expect(d.get_by_text("Example Opus").first).to_be_visible()
+    r.shot("models")
     d.get_by_role("button", name="Save").click()
     expect(d).to_be_hidden()
     post = r.log()["post"]
-    assert post.get("display_name") == "Example Gateway" and post.get("api_key", "") in ("", None), post
+    assert post.get("display_name") == "Example Gateway" and post.get("api_key") == "<set>", post
+    assert post.get("base_url") == "https://gateway.example.invalid", post
     assert [m["id"] for m in post.get("models", [])] == ["example-sonnet", "example-opus"], post.get("models")
-    ok("Continue fills in the gateway's steps; Save saves it with the link's name, address and models, no key")
+    ok("Continue fills in the gateway's steps without a key; with the user's own key Save saves the link's name, address and models")
 
 
 def refused(r):
@@ -204,7 +212,7 @@ def phone(browser, base, hub, token, shots):
     d = r.open_link("import=" + data(GATEWAY))
     clean_address(r)
     expect(d.get_by_text("Opened from a link")).to_be_visible()
-    expect(d.get_by_text("Read as an import link.")).to_be_visible()
+    expect(d.get_by_text("Gateway").first).to_be_visible()
     r.shot("open")
     width = page.evaluate("document.documentElement.scrollWidth")
     assert width <= 390, f"the link view scrolls sideways at 390 px ({width})"

@@ -89,7 +89,8 @@ describe("Add opened from an import link", () => {
   it("reads it at once, in one request whose body is the link alone", async () => {
     await open();
     expect(parses()).toEqual([{ method: "POST", path: "/api/v1/launchers/import/parse", body: { text: LINK } }]);
-    expect(text()).toContain(t("settings-providerpaste.format_link"));
+    // the link's line says what it is: no "read as" line under it
+    expect(text()).not.toContain(t("settings-providerpaste.format_link"));
     expect(text()).toContain("Example Gateway");
     // the draft goes on like a paste's: the gateway's form, nothing saved
     await click(button(t("settings-providerwizard.paste_continue")));
@@ -105,7 +106,7 @@ describe("Add opened from an import link", () => {
     await act(async () => release());
     await flush();
     expect(text()).not.toContain(t("settings-providerpaste.link_reading"));
-    expect(text()).toContain(t("settings-providerpaste.format_link"));
+    expect(text()).toContain("Example Gateway");
   });
 
   it("says in link words when nothing in it can be added, and why", async () => {
