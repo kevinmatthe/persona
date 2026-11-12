@@ -9,8 +9,7 @@
 // forwards from them: they belong to a session the conversation has left.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, sessionPath } from "../../lib/api";
-import { planStretches, type StretchSource } from "../../lib/engine-stretches";
-import { splitStretches } from "../../lib/engine-switch";
+import { planStretches, sameItems, splitStretches, stretchWindows, type StretchSource } from "../../lib/engine-stretches";
 import { sessionLoadError } from "../../lib/session-link";
 import { buildTaskIndex } from "../../lib/tasks";
 import { chatLines, mergeItems, type ChatLine } from "../../lib/turns";
@@ -24,7 +23,8 @@ import { ChatLineView } from "./Lines";
 import type { EarlierStretch, StretchesHost } from "./useEarlierStretches";
 
 const PAGE = "turns=2&fold_work=1&lazy_images=1";
-/** After a page fails, loading waits this long before asking again (scrolling at the top asks on every tick), doubling up to the cap. */
+/** After a page fails, loading waits this long before asking again (scrolling at the top asks on every tick), doubling up
+ *  to the cap; once the wait is over the chat asks again by itself (`due`) while its top is in view. */
 const RETRY_MS = 3000;
 const RETRY_MAX_MS = 30_000;
 
@@ -40,12 +40,9 @@ const NO_STORES: Record<string, Store> = {};
 const NO_STRETCHES: EarlierStretch[] = [];
 const NO_SUBAGENTS: never[] = [];
 
-function sameItems(a: readonly Item[] | undefined, b: readonly Item[]): boolean {
-  return !!a && a.length === b.length && a.every((x, i) => x === b[i]);
-}
-
 /** `offscreen`: ChatView's (an exchange off screen skips drawing, SegmentView `offscreen`). */
-export default memo(function EarlierStretches({ mid, sid, scope, windows, live, liveSplit, report, offscreen }: StretchesHost & { offscreen?: Offscreen }) {
+export default memo(function EarlierStretches({ mid, sid, scope, history, live, report, offscreen }: StretchesHost & { offscreen?: Offscreen }) {
+  const windows = useMemo(() => stretchWindows(history, sid), [history, sid]);
   const [state, setState] = useState<{ scope: string; stores: Record<string, Store> }>({ scope, stores: NO_STORES });
   const stores = state.scope === scope ? state.stores : NO_STORES;
   const [loading, setLoading] = useState(false);
@@ -54,32 +51,44 @@ export default memo(function EarlierStretches({ mid, sid, scope, windows, live, 
   const inFlight = useRef(false);
   const retryAt = useRef(0);
   const wait = useRef(0);
+  // a failed page's wait: when it is over, `due` moves and the chat asks again (ChatView, while its top is in view)
+  const retryTimer = useRef<number | undefined>(undefined);
+  const [due, setDue] = useState(0);
+  const stopRetry = useCallback(() => {
+    window.clearTimeout(retryTimer.current);
+    retryTimer.current = undefined;
+  }, []);
   useEffect(() => {
     gen.current++;
     inFlight.current = false;
     retryAt.current = 0;
     wait.current = 0;
+    stopRetry();
     setLoading(false);
     setError("");
-  }, [scope]);
+    return stopRetry;
+  }, [scope, stopRetry]);
 
   const liveSource = useMemo<StretchSource>(() => ({ items: live.items, hasMore: live.hasMore, ready: !live.loading }), [live.items, live.hasMore, live.loading]);
   const sourceOf = useCallback((s: string): StretchSource | undefined => (s === sid ? liveSource : stores[s]), [sid, liveSource, stores]);
   const plan = useMemo(() => planStretches(windows, sourceOf), [windows, sourceOf]);
 
-  // The other sessions' items by stretch, kept the same arrays while they hold the same items (as liveSplit is).
+  // Each session's items by stretch, kept the same arrays while they hold the same items. The live session's are split
+  // only when it ran an earlier stretch too (A → B → A): a reply streaming into one that did not splits nothing again.
+  const several = windows.filter((w) => w.sid === sid).length > 1;
+  const liveSplitting = several ? live.items : undefined;
   const lastSplit = useRef(new Map<number, Item[]>());
   const split = useMemo(() => {
-    const out = new Map(liveSplit);
+    const out = new Map<number, Item[]>();
     for (const s of new Set(windows.map((w) => w.sid))) {
-      if (s === sid) continue;
-      for (const [i, items] of splitStretches(stores[s]?.items ?? [], windows, s)) {
+      if (s === sid && !liveSplitting) continue;
+      for (const [i, items] of splitStretches(s === sid ? liveSplitting! : (stores[s]?.items ?? []), windows, s)) {
         const was = lastSplit.current.get(i);
         out.set(i, sameItems(was, items) ? was! : items);
       }
     }
     return out;
-  }, [windows, sid, stores, liveSplit]);
+  }, [windows, sid, stores, liveSplitting]);
   lastSplit.current = split;
 
   const expandOther = useCallback(
@@ -150,29 +159,36 @@ export default memo(function EarlierStretches({ mid, sid, scope, windows, live, 
       setError("");
       retryAt.current = 0;
       wait.current = 0;
+      stopRetry();
     } catch (e) {
       if (g !== gen.current) return;
       wait.current = Math.min(wait.current ? wait.current * 2 : RETRY_MS, RETRY_MAX_MS);
       retryAt.current = Date.now() + wait.current;
       setError(sessionLoadError(errorText(e)));
+      stopRetry();
+      retryTimer.current = window.setTimeout(() => {
+        retryTimer.current = undefined;
+        if (g === gen.current) setDue((n) => n + 1);
+      }, wait.current);
     } finally {
       if (g === gen.current) {
         inFlight.current = false;
         setLoading(false);
       }
     }
-  }, [mid, sid]);
+  }, [mid, sid, stopRetry]);
 
   const retry = () => {
     retryAt.current = 0;
     wait.current = 0;
+    stopRetry();
     setError("");
     void loadEarlier();
   };
 
   // what the chat around them reads (useEarlierStretches): before paint, so it keeps its place as they come in above
   const hasMore = plan.next !== undefined;
-  useLayoutEffect(() => report(scope, { hasMore, loading, loadEarlier, stretches }), [report, scope, hasMore, loading, loadEarlier, stretches]);
+  useLayoutEffect(() => report(scope, { hasMore, loading, loadEarlier, stretches, due }), [report, scope, hasMore, loading, loadEarlier, stretches, due]);
 
   if (!stretches.length && !error) return null;
   return (

@@ -299,8 +299,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   // a conversation that moved between Claude Code and Codex (#5054): its earlier sessions read above the live one, as
   // one conversation; without engine_history this is the transcript as it is
   const earlier = useEarlierStretches(mid, sid, assistant ? undefined : session?.engine_history, tr);
+  // what the rail's jumps and the search page back through: the live stretch, whose start ends it (#5054)
   const trNow = useRef(tr);
-  trNow.current = tr;
+  trNow.current = { ...tr, hasMore: earlier.liveHasMore };
   const railChat = useRef(`${mid}/${sid}`);
   railChat.current = `${mid}/${sid}`;
   const railRun = useRef(0);
@@ -890,7 +891,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   useEffect(() => {
     loadEarlierNearTop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tr.items, earlier.stretches, earlier.hasMore, earlier.loadingEarlier, earlier.loadEarlier]);
+  }, [tr.items, earlier.stretches, earlier.hasMore, earlier.loadingEarlier, earlier.loadEarlier, earlier.due]);
 
   const toEnd = () => {
     const el = scroller.current;
@@ -1136,8 +1137,15 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   }, [fine, lines, revealedSeq]);
   const inputRevision = useMemo(() => userInputRevision(tr.items), [tr.items]);
   const completeInputIndex = useUserInputs(mid, sid, tr.history, inputRevision, fine && !tr.loading, tr.reload);
-  const inputIndex = useMemo(() => completeInputIndex ? windowUserInputs(completeInputIndex, revealedSeq) : null, [completeInputIndex, revealedSeq]);
-  const railTicks = useMemo(() => inputIndex ? indexedNavTicks(inputIndex, lines, tr.items) : loadedRailTicks, [inputIndex, lines, tr.items, loadedRailTicks]);
+  // the live stretch's inputs only (#5054): an earlier stretch of the live session (A → B → A) is drawn by EarlierStretches,
+  // so the inputs before the live stretch's oldest loaded item are none of the rail's
+  const liveFrom = earlier.liveItems === tr.items ? 0 : (earlier.liveItems[0]?.seq ?? Infinity);
+  const inputIndex = useMemo(() => {
+    if (!completeInputIndex) return null;
+    const inputs = completeInputIndex.inputs.filter((input) => input.seq >= liveFrom);
+    return windowUserInputs({ ...completeInputIndex, inputs, total: inputs.length }, revealedSeq);
+  }, [completeInputIndex, liveFrom, revealedSeq]);
+  const railTicks = useMemo(() => inputIndex ? indexedNavTicks(inputIndex, lines, earlier.liveItems) : loadedRailTicks, [inputIndex, lines, earlier.liveItems, loadedRailTicks]);
   /** Brings a row (or a run of words) into view in the chat's own scroller (scrollIntoView would also scroll an opening
    *  group's clipped box): following the end stops, and the jump's first frames do not pick it up again (`jumping`). */
   const landRow = useCallback(
@@ -1393,8 +1401,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
     const item = peekJump(mid, sid);
     if (!item || tr.loading) return;
     takeJump(mid, sid);
-    if (tr.items.some((i) => i.id === item)) requestAnimationFrame(() => seekItem(item, true));
-  }, [mid, sid, tr.loading, tr.items, seekItem]);
+    if (earlier.liveItems.some((i) => i.id === item)) requestAnimationFrame(() => seekItem(item, true));
+  }, [mid, sid, tr.loading, earlier.liveItems, seekItem]);
   const backToOrigin = useCallback(() => {
     const o = origin.current;
     origin.current = null;
@@ -1845,9 +1853,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         open={search.open}
         query={search.query}
         onQuery={(query) => setSearch((x) => ({ ...x, query }))}
-        items={tr.items}
+        items={earlier.liveItems}
         rounds={rounds}
-        hasMore={tr.hasMore}
+        hasMore={earlier.liveHasMore}
         onLoadEarlier={loadForSearch}
         onPick={goTo}
         onClose={closeSearch}

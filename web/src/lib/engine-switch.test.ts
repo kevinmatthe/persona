@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { planStretches, stretchComplete, type StretchSource } from "./engine-stretches";
-import { engineSwitchHome, engineSwitchOf, splitStretches, stretchesKey, stretchWindows } from "./engine-switch";
+import { planStretches, splitStretches, stretchComplete, stretchWindows, type StretchSource } from "./engine-stretches";
+import { engineSwitchHome, engineSwitchOf, liveStretch, stretchesKey } from "./engine-switch";
 import { parseUserText } from "./turns";
 import type { EngineLeg, Item, Session } from "./types";
 
@@ -35,6 +35,14 @@ describe("engineSwitchOf", () => {
     expect(switchOf(block('from="claude" to="codex" model="&#x41;&quot;"', "x")).sw?.model).toBe('A"');
   });
 
+  it("is nothing unless it moves from one known engine to the other: a pasted look-alike stays a context", () => {
+    expect(switchOf(block('from="claude" to="claude"', "x")).sw).toBeUndefined();
+    expect(switchOf(block('from="claude" to="gemini"', "x")).sw).toBeUndefined();
+    expect(switchOf(block('to="codex"', "x")).sw).toBeUndefined();
+    expect(switchOf(block('from="Claude" to="codex"', "x")).sw).toBeUndefined();
+    expect(switchOf(block('from=" codex " to="claude"', "x")).sw).toMatchObject({ from: "codex", to: "claude" });
+  });
+
   it("is nothing for any other block", () => {
     expect(engineSwitchOf({ kind: "context", text: "x" })).toBeUndefined();
     expect(parseUserText('<persona-context kind="forward" title="t">x</persona-context>hi').contexts.map(engineSwitchOf)).toEqual([undefined]);
@@ -46,6 +54,13 @@ let seq = 0;
 const it_ = (sid: string, m: number, extra: Partial<Item> = {}): Item => ({ id: `${sid}-${++seq}#0`, seq, role: "user", kind: "text", text: `${sid} at ${m}`, ts: T(m), ...extra });
 const legs = (...l: [string, string, number][]): EngineLeg[] => l.map(([session_id, agent, m]) => ({ session_id, agent, until: T(m) }));
 const src = (items: Item[], hasMore = false, ready = true): StretchSource => ({ items, hasMore, ready });
+
+describe("stretchesKey", () => {
+  it("is empty for a history that names no session", () => {
+    expect(stretchesKey(undefined)).toBe("");
+    expect(stretchesKey([{ session_id: "", agent: "claude", until: T(1) }])).toBe("");
+  });
+});
 
 describe("stretchWindows", () => {
   it("is nothing for a conversation that never switched", () => {
@@ -85,6 +100,26 @@ describe("splitStretches", () => {
     expect(got.get(0)).toEqual(early); // up to and with until[0]
     expect(got.get(2)).toEqual(late); // after until[1]; the item without a time goes with the one before it
     expect(got.has(1)).toBe(false); // B's stretch is not A's
+  });
+});
+
+describe("liveStretch", () => {
+  it("is nothing when the live session ran only the live stretch, or the conversation never switched", () => {
+    expect(liveStretch([it_("b", 12)], legs(["a", "claude", 10]), "b")).toBeUndefined();
+    expect(liveStretch([it_("b", 12)], [], "b")).toBeUndefined();
+    expect(liveStretch([it_("b", 12)], undefined, "b")).toBeUndefined();
+  });
+
+  it("is what splitStretches puts in the live stretch (A → B → A), untimed items and odd times alike", () => {
+    const history = legs(["a", "claude", 10], ["b", "codex", 20]);
+    const w = stretchWindows(history, "a");
+    const cases: Item[][] = [
+      [it_("a", 1), it_("a", 10), it_("a", 21), it_("a", 0, { ts: undefined }), it_("a", 40)],
+      [it_("a", 0, { ts: undefined }), it_("a", 25), it_("a", 26)], // the first ones go with the first timed one
+      [it_("a", 0, { ts: undefined }), it_("a", 0, { ts: undefined })], // no time at all: the first stretch's
+      [it_("a", 5), it_("a", 15), it_("a", 20), it_("a", 21)], // a clock between the switches: not the live one's
+    ];
+    for (const items of cases) expect(liveStretch(items, history, "a")).toEqual(splitStretches(items, w, "a").get(2));
   });
 });
 
