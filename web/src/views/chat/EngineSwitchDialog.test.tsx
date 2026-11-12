@@ -247,6 +247,30 @@ describe("Switch Agent?", () => {
     expect(toast).toHaveBeenLastCalledWith(expect.stringContaining("can't switch engines yet"), "error");
   });
 
+  it("\"Don't remind me again\" on a switch the hub refuses isn't kept: the next pick asks again", async () => {
+    await show(agent());
+    await open();
+    for (const code of ["switch_stale", "switch_unsupported", "node_outdated"]) {
+      modesAnswer = () => json({ error: `refused: ${code}`, code }, 409);
+      const { result } = await asking({ provider: "cx", model: "gpt-5.5" });
+      act(() => dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+      act(() => buttonNamed(t("chat-modelpanel.engine_dialog_switch")).click());
+      expect(await settled(result)).toBe(false);
+      expect(localStorage.getItem(ENGINE_SWITCH_SKIP_KEY)).toBeNull();
+      expect(getSession(`mac-${machine}`, "s1")?.pending_switch).toBeUndefined();
+      // the chat draws the row put back, as ChatView does from the store
+      act(() => root.render(<AgentModelPill session={getSession(`mac-${machine}`, "s1")!} />));
+      await flush();
+    }
+    // the hub takes it now: asked again, ticked, and from then on kept
+    modesAnswer = () => json({ ok: true });
+    const { result } = await asking({ provider: "cx", model: "gpt-5.5" });
+    act(() => dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    act(() => buttonNamed(t("chat-modelpanel.engine_dialog_switch")).click());
+    expect(await settled(result)).toBe(true);
+    expect(localStorage.getItem(ENGINE_SWITCH_SKIP_KEY)).toBe("1");
+  });
+
   it("a Codex Agent in a terminal: its pill opens on such a hub, picks Claude Code with the question, and drops it from its own row", async () => {
     Object.assign(getState(), { features: ["engine_switch"] });
     await show(terminalCodex());

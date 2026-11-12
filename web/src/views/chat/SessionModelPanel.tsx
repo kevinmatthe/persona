@@ -104,15 +104,18 @@ export function SessionModelPanel({ session, anchor, onClose }: { session: Sessi
     let steps = pickPlan(latest.current, config, listOf, options());
     if (!steps) return false;
     const to = config.provider !== own && steps.length ? crossEngine(config.provider) : undefined;
+    let skip = false;
     if (to && asksEngineSwitch(latest.current, to)) {
-      const { go, skip } = await ask();
-      if (!go) return false;
-      if (skip) skipEngineSwitchQuestion();
+      const answer = await ask();
+      if (!answer.go) return false;
+      skip = answer.skip;
       // made again against the session as it is now (a push may have come while it asked)
       steps = pickPlan(latest.current, config, listOf, options());
       if (!steps) return false;
     }
     if (!(await apply(steps))) return false;
+    // "Don't remind me again" holds once the switch it confirmed is recorded: a pick the hub refused asks again
+    if (skip) skipEngineSwitchQuestion();
     // a switch waits for the next message: say so, in the words the pill now shows
     const next = config.provider !== own && steps.length ? pendingView(latest.current, (name) => modelList(mid, name)) : null;
     if (next && to) toast(t("chat-modelpanel.switch_scheduled_engine", { agent: agentName(next.engine), model: next.model ?? "" }), "ok");
