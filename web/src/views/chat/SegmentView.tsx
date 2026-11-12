@@ -1,7 +1,7 @@
 import { type CSSProperties, Fragment, memo, type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clock } from "../../lib/format";
 import { stripCloseout } from "../../lib/closeout";
-import { getSession, getState } from "../../lib/store";
+import { getSession, getState, useStore } from "../../lib/store";
 import { withChildSessions } from "../../lib/child-cards";
 import { agentStatus, isNestedSubagentStep, nestedSubagentStatus, nestingKey, subagentFor, withNestedSubagents } from "../../lib/tasks";
 import { turnImages } from "../../lib/turn-images";
@@ -9,7 +9,7 @@ import { TurnImages } from "./TurnImages";
 import { exchangeSteps, segmentIdentity, isLoopTick, isOwnMessage, type Context, type Segment, type UserMessage } from "../../lib/turns";
 import type { Item } from "../../lib/types";
 import { ENGINE_SWITCH_KIND } from "../../lib/engine-switch";
-import { workBlocks, type ToolStep, type WorkNode } from "../../lib/work-groups";
+import { planCardStep, workBlocks, type ToolStep, type WorkNode } from "../../lib/work-groups";
 import { NO_WORKFLOW_CALLS } from "../../lib/workflows";
 import { channelOf, useChannels } from "../../lib/channels";
 import { splitQuotes } from "../../lib/drafts";
@@ -38,6 +38,8 @@ import { useChatContext } from "./chat-context";
 import { useFreshWords } from "./fresh-words";
 import { Icon } from "../../ui/icons";
 import { WorkGroup, WorkNodes, type WorkProps } from "./WorkGroup";
+import { TurnChanges, turnChangesHeight } from "./TurnChanges";
+import { turnChanges } from "../../lib/turn-changes";
 import { useCallSeeker } from "./jump";
 import { t } from "../../i18n";
 
@@ -298,11 +300,13 @@ export const SegmentView = memo(function SegmentView({
     [own, nesting, placed],
   );
   const turnStart = seg.user?.ts ?? seg.start;
+  // one plan card per exchange, where its latest list was written (cindy); the other updates are rows
+  const plan = useMemo(() => planCardStep(steps), [steps]);
   const p = useMemo<WorkProps>(() => {
     const agent = (s: ToolStep) =>
       isNestedSubagentStep(s) ? nestedSubagentStatus(subagentFor(subagents, s.use)) : agentStatus(s.result, subagentFor(subagents, s.use), live, s.use.tool_use_id ? tasks.notes.get(s.use.tool_use_id) : undefined);
-    return { mid, sid, scope, expandFold, agentStatus: agent, segment: seg.id, workflowCalls, trace, lineStyle, turnLive: live };
-  }, [mid, sid, scope, expandFold, subagents, tasks, live, seg.id, workflowCalls, trace, lineStyle]);
+    return { mid, sid, scope, expandFold, agentStatus: agent, segment: seg.id, workflowCalls, trace, lineStyle, turnLive: live, plan };
+  }, [mid, sid, scope, expandFold, subagents, tasks, live, seg.id, workflowCalls, trace, lineStyle, plan]);
   const identity = segmentIdentity(seg);
   const nodes = useMemo(
     () => workBlocks(steps, { live, turnStart, streaming: streaming !== undefined, identity }),
@@ -330,8 +334,15 @@ export const SegmentView = memo(function SegmentView({
     return offscreen && el ? offscreen(el) : undefined;
   }, [offscreen]);
   const divided = Boolean(seg.modelChange);
+  // the files this finished Agent exchange changed (cindy's TurnChangesCard): its own edits, never a Persona
+  // conversation's (super rules 0 and 4), never while it runs, never in a supervision trace, and never when the page
+  // starts inside it (no message of the user's): edits before the page would be missing from its counts
+  const counted = !live && !trace && lineStyle === "agents" && Boolean(seg.user);
+  // the session's folder from the store, so the card follows it when it comes in after the transcript
+  const cwd = useStore(() => (counted ? getSession(mid, sid)?.cwd : undefined));
+  const changes = useMemo(() => (counted ? turnChanges(own, cwd) : null), [counted, own, cwd]);
   const switched = Boolean(seg.engineSwitch);
-  const guess = useMemo(() => (offscreen ? ({ "--seg-est": `${segmentHeight(seg.user, nodes, divided, switched)}px` } as CSSProperties) : undefined), [offscreen, seg.user, nodes, divided, switched]);
+  const guess = useMemo(() => (offscreen ? ({ "--seg-est": `${segmentHeight(seg.user, nodes, divided, switched) + (changes ? 12 + turnChangesHeight(changes) : 0)}px` } as CSSProperties) : undefined), [offscreen, seg.user, nodes, divided, switched, changes]);
   return (
     <section ref={box} className={offscreen ? "seg-cv flex flex-col gap-3.5" : "flex flex-col gap-3.5"} style={guess} data-segment>
       {/* the first message the conversation's new engine got (#5054): the switch divider above it, the user's words below */}
@@ -349,6 +360,7 @@ export const SegmentView = memo(function SegmentView({
       {!live && <Fragment key="before-words">{beforeWords}</Fragment>}
       {streaming !== undefined && liveRow}
       {(latestItem || streaming !== undefined) && !onlyCloseout && <div key="latest-text" data-latest-text><LatestAnswer item={latestItem} streaming={streaming} mid={mid} sid={sid} noCloseout={noCloseout || undefined} /></div>}
+      {changes && <TurnChanges key="turn-changes" changes={changes} mid={mid} sid={sid} cwd={cwd} />}
     </section>
   );
 });
