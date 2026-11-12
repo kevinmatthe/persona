@@ -280,6 +280,14 @@
       },
       "$description": "Theme.Size.dotXL"
     },
+    "markXS": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "Theme.Size.markXS"
+    },
     "markS": {
       "$type": "dimension",
       "$value": {
@@ -287,6 +295,14 @@
         "unit": "px"
       },
       "$description": "Theme.Size.markS"
+    },
+    "wellXS": {
+      "$type": "dimension",
+      "$value": {
+        "value": 28,
+        "unit": "px"
+      },
+      "$description": "Theme.Size.wellXS"
     },
     "lineMedium": {
       "$type": "dimension",
@@ -303,6 +319,14 @@
         "unit": "px"
       },
       "$description": "Theme.Size.bar: the accent bar beside a quote-like card"
+    },
+    "slimBar": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      },
+      "$description": "ChatChrome.compactHeight: an Agent chat's header folded into its slim bar"
     }
   }
 }
