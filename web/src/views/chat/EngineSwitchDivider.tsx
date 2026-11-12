@@ -1,30 +1,27 @@
 // The line across the chat where the conversation moved to another engine (#5054, lib/engine-switch.ts), after cindy's
 // agent switch card: "⇄ Switched from Claude Code to Codex · GPT-5.5 · Continued from summary ›" between two hairlines,
 // above the first message the new engine got. The chip opens the handoff the new engine was given, when there is one;
-// opened or not is remembered per divider.
-import { useId } from "react";
+// opened or not is remembered per divider. The handoff's panel (EngineHandoffPanel.tsx) is off the first screen: a
+// divider loads it as it is drawn, so it is in before the chip is first pressed, and the panel opens only once it is.
+import { useEffect, useId, useState } from "react";
 import { agentName } from "../../lib/agent-kind";
-import { ENGINE_SWITCH_KIND, engineSwitchOf, type EngineSwitch } from "../../lib/engine-switch";
+import type { EngineSwitch } from "../../lib/engine-switch";
 import { replyModelName } from "../../lib/model-change";
-import { withoutCutMark } from "../../lib/tool-detail";
-import { parseUserText } from "../../lib/turns";
 import type { Item } from "../../lib/types";
 import { Collapse } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { t } from "../../i18n";
 import { useChatContext } from "./chat-context";
 import { useExpanded } from "./expanded";
-import { useFullText } from "./FullText";
+
+type Panel = typeof import("./EngineHandoffPanel").EngineHandoffPanel;
+/** The panel once loaded: a divider drawn after that has it at once. */
+let loadedPanel: Panel | undefined;
+const loadPanel = () => import("./EngineHandoffPanel").then((m) => (loadedPanel = m.EngineHandoffPanel));
 
 /** The words the divider says: "Switched from Claude Code to Codex". */
 export function engineSwitchLabel(sw: Pick<EngineSwitch, "from" | "to">): string {
   return t("chat-lines.engine_switched", { from: agentName(sw.from), to: agentName(sw.to) });
-}
-
-/** The handoff in the whole text of the message, once fetched. */
-function wholeHandoff(raw: string): string | undefined {
-  for (const c of parseUserText(raw).contexts) if (c.kind === ENGINE_SWITCH_KIND) return engineSwitchOf(c)?.text;
-  return undefined;
 }
 
 /** `id`: the exchange's (where its open state is kept). `item`: the message's transcript item, for the rest of a
@@ -36,11 +33,13 @@ export function EngineSwitchDivider({ sw, id, item, mid, sid }: { sw: EngineSwit
   const label = engineSwitchLabel(sw);
   const model = sw.model ? replyModelName(sw.model) : "";
   const badge = t(sw.resumed ? "chat-lines.engine_resumed" : "chat-lines.engine_continued");
-  // a long handoff the hub cut for the page: what is here, and "View full text" for the rest
-  const cut = item?.full_size ? item : undefined;
-  const full = useFullText(cut, mid, sid);
-  const handoff = cut ? ((!full.more && wholeHandoff(full.text)) || withoutCutMark(sw.text)) : sw.text;
   const has = Boolean(sw.text.trim());
+  const [HandoffPanel, setPanel] = useState<Panel | undefined>(() => loadedPanel);
+  const fetchPanel = () => void loadPanel().then((p) => setPanel(() => p)).catch(() => {}); // a failed load tries again on the next press
+  useEffect(() => {
+    if (has && !HandoffPanel) fetchPanel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [has, HandoffPanel]);
   // Too narrow for all of it (a long model id): the model and the badge give up their room, the words saying what
   // happened keep theirs (cut only past the chip's whole width). A phone's column has room for less: the engines as the
   // model change divider names models ("Claude Code → Codex") and the badge, no model, the hairlines and gaps narrower.
@@ -69,7 +68,10 @@ export function EngineSwitchDivider({ sw, id, item, mid, sid }: { sw: EngineSwit
         {has ? (
           <button
             type="button"
-            onClick={() => setOpen((o) => !o)}
+            onClick={() => {
+              if (!HandoffPanel) fetchPanel();
+              setOpen((o) => !o);
+            }}
             aria-expanded={open}
             aria-controls={panel}
             title={t("chat-lines.engine_handoff_view")}
@@ -83,12 +85,8 @@ export function EngineSwitchDivider({ sw, id, item, mid, sid }: { sw: EngineSwit
         <span aria-hidden className="h-px min-w-4 flex-1 bg-line-strong max-sm:min-w-2" />
       </div>
       {has && (
-        <Collapse open={open} lazy>
-          <div id={panel} className="mx-auto mt-2 max-w-full rounded-card border border-line-strong bg-inset px-4 py-3 select-text" data-engine-handoff>
-            <div className="mb-1.5 text-[11px] font-medium text-ink-3">{t("chat-lines.engine_handoff_title")}</div>
-            <pre className="max-h-64 overflow-y-auto font-mono text-[12px] leading-[1.55] whitespace-pre-wrap text-tool-ink [overflow-wrap:anywhere]">{handoff}</pre>
-            {full.more}
-          </div>
+        <Collapse open={open && Boolean(HandoffPanel)} lazy>
+          {HandoffPanel && <HandoffPanel id={panel} sw={sw} item={item} mid={mid} sid={sid} />}
         </Collapse>
       )}
     </div>

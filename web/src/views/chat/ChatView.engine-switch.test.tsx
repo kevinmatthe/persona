@@ -42,6 +42,10 @@ let root: Root;
 const flush = async () => {
   for (let i = 0; i < 10; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 };
+/** Until `ok` (the stretches' module loads with the chat; a loaded machine takes a few turns), at most about a second. */
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 200 && !ok(); i++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+};
 /** Opens the chat as a page does: the transcript loading, then its first page in (the chat lands at the end first). */
 async function open(sid: string, items: Item[]) {
   Object.assign(transcript, { items: [], loading: true });
@@ -102,7 +106,7 @@ describe("a conversation across engines", () => {
     // B is whole: A's stretch loads and reads above it
     transcript.hasMore = false;
     act(() => root.render(<ChatView mid="m" sid="b" onToggleSidebar={() => {}} />));
-    await flush();
+    await until(() => host.querySelector("[data-engine-stretch='a']") !== null);
     expect(asked).toEqual(["a"]);
     expect(reading()).toEqual(["Build a login page.", "The login page is in.", "⇄ summary", "Now add the tests.", "Tests added."]);
     expect(host.querySelector("[data-engine-stretch='a']")).not.toBeNull();
@@ -118,6 +122,7 @@ describe("a conversation across engines", () => {
       user("a", 1, 1, "Build a login page."), said("a", 2, 2, "The login page is in."),
       user("a", 3, 21, `${block("codex", "claude", true)}Review the tests.`), said("a", 4, 22, "They look right."),
     ]);
+    await until(() => host.querySelector("[data-engine-stretch='a']") !== null);
     expect(asked).toEqual(["b"]);
     expect(reading()).toEqual(["Build a login page.", "The login page is in.", "⇄ summary", "Now add the tests.", "Tests added.", "⇄ resumed", "Review the tests.", "They look right."]);
     expect([...host.querySelectorAll("[data-engine-stretch]")].map((el) => el.getAttribute("data-engine-stretch"))).toEqual(["a", "b"]);
@@ -138,6 +143,7 @@ describe("a conversation across engines", () => {
     upsertSession(row("b", { agent: "codex", engine_history: [{ session_id: "a", agent: "claude", until: at(10) }] }));
     pages.a = [user("a", 1, 1, "Build a login page."), said("a", 2, 2, "The login page is in.")];
     await open("b", [user("b", 1, 11, `${block("claude", "codex")}Now add the tests.`), said("b", 2, 12, "Tests added.")]);
+    await until(() => host.querySelector("[data-engine-stretch='a']") !== null);
     const earlier = host.querySelector("[data-engine-stretch='a']")!;
     const live = [...host.querySelectorAll("[data-user-bubble]")].find((el) => !earlier.contains(el))!;
     const labels = (el: Element) => [...el.querySelectorAll("button[aria-label]")].map((b) => b.getAttribute("aria-label"));

@@ -1,44 +1,194 @@
 // The earlier stretches of a conversation that moved between Claude Code and Codex (#5054, useEarlierStretches.ts),
-// drawn above the live one: each its own session's lines (built apart, so no exchange crosses a switch, and each later
-// stretch opens with its switch divider), read only. Their messages keep Copy; nothing goes to the composer, and
-// nothing rewinds, branches or forwards from them: they belong to a session the conversation has left.
-import { memo, useMemo } from "react";
+// loaded only for a conversation that switched (off the first screen). It reads the sessions the row names, read only
+// and lazily, so the chat reads as one conversation: nothing loads until the live stretch is whole (its own pages come
+// from useTranscript, untouched); then each "load earlier" goes to the newest stretch not yet whole: its session's newest
+// page, then its older pages (`before_seq`), as scrolling up loads a session's own. A stretch shows only once every
+// later one is whole, so nothing ever moves in between what is on screen (lib/engine-stretches.ts). Each stretch is its
+// own session's lines, built apart (no exchange crosses a switch; each later stretch opens with its switch divider),
+// drawn above the live one. Their messages keep Copy; nothing goes to the composer, and nothing rewinds, branches or
+// forwards from them: they belong to a session the conversation has left.
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { api, errorText, sessionPath } from "../../lib/api";
+import { planStretches, type StretchSource } from "../../lib/engine-stretches";
+import { splitStretches } from "../../lib/engine-switch";
+import { sessionLoadError } from "../../lib/session-link";
 import { buildTaskIndex } from "../../lib/tasks";
-import { chatLines, type ChatLine } from "../../lib/turns";
+import { chatLines, mergeItems, type ChatLine } from "../../lib/turns";
+import type { Item, ItemsPage } from "../../lib/types";
 import { NO_WORKFLOW_CALLS } from "../../lib/workflows";
 import { Button } from "../../ui/atoms";
 import { t } from "../../i18n";
 import { ChatActionsContext, useChatActions, type ChatActions } from "./chat-actions";
 import { ChatContext, useChatContext, type ChatContextValue } from "./chat-context";
 import { ChatLineView } from "./Lines";
-import type { EarlierStretch } from "./useEarlierStretches";
+import type { EarlierStretch, StretchesHost } from "./useEarlierStretches";
 
+const PAGE = "turns=2&fold_work=1&lazy_images=1";
+/** After a page fails, loading waits this long before asking again (scrolling at the top asks on every tick), doubling up to the cap. */
+const RETRY_MS = 3000;
+const RETRY_MAX_MS = 30_000;
+
+type Offscreen = (line: ChatLine) => ((section: HTMLElement) => () => void) | undefined;
+
+interface Store {
+  items: Item[];
+  hasMore: boolean;
+  ready: boolean;
+}
+
+const NO_STORES: Record<string, Store> = {};
+const NO_STRETCHES: EarlierStretch[] = [];
 const NO_SUBAGENTS: never[] = [];
 
-export function EarlierStretches({ mid, stretches, error, onRetry, offscreen }: {
-  mid: string;
-  stretches: EarlierStretch[];
-  /** The last earlier page that failed: said above them, with Retry. */
-  error?: string;
-  onRetry?: () => void;
-  /** ChatView's: an exchange off screen skips drawing (SegmentView `offscreen`). */
-  offscreen?: (line: ChatLine) => ((section: HTMLElement) => () => void) | undefined;
-}) {
+function sameItems(a: readonly Item[] | undefined, b: readonly Item[]): boolean {
+  return !!a && a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/** `offscreen`: ChatView's (an exchange off screen skips drawing, SegmentView `offscreen`). */
+export default memo(function EarlierStretches({ mid, sid, scope, windows, live, liveSplit, report, offscreen }: StretchesHost & { offscreen?: Offscreen }) {
+  const [state, setState] = useState<{ scope: string; stores: Record<string, Store> }>({ scope, stores: NO_STORES });
+  const stores = state.scope === scope ? state.stores : NO_STORES;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const gen = useRef(0);
+  const inFlight = useRef(false);
+  const retryAt = useRef(0);
+  const wait = useRef(0);
+  useEffect(() => {
+    gen.current++;
+    inFlight.current = false;
+    retryAt.current = 0;
+    wait.current = 0;
+    setLoading(false);
+    setError("");
+  }, [scope]);
+
+  const liveSource = useMemo<StretchSource>(() => ({ items: live.items, hasMore: live.hasMore, ready: !live.loading }), [live.items, live.hasMore, live.loading]);
+  const sourceOf = useCallback((s: string): StretchSource | undefined => (s === sid ? liveSource : stores[s]), [sid, liveSource, stores]);
+  const plan = useMemo(() => planStretches(windows, sourceOf), [windows, sourceOf]);
+
+  // The other sessions' items by stretch, kept the same arrays while they hold the same items (as liveSplit is).
+  const lastSplit = useRef(new Map<number, Item[]>());
+  const split = useMemo(() => {
+    const out = new Map(liveSplit);
+    for (const s of new Set(windows.map((w) => w.sid))) {
+      if (s === sid) continue;
+      for (const [i, items] of splitStretches(stores[s]?.items ?? [], windows, s)) {
+        const was = lastSplit.current.get(i);
+        out.set(i, sameItems(was, items) ? was! : items);
+      }
+    }
+    return out;
+  }, [windows, sid, stores, liveSplit]);
+  lastSplit.current = split;
+
+  const expandOther = useCallback(
+    async (s: string, fold: Item) => {
+      if (!fold.fold) return;
+      const g = gen.current;
+      let from = fold.seq;
+      const out: Item[] = [];
+      for (let n = 0; n < 20; n++) {
+        const p = await api<ItemsPage>(`${sessionPath(mid, s)}/items?from_seq=${from}&through_seq=${fold.fold.through_seq}&lazy_images=1`);
+        if (g !== gen.current) return;
+        out.push(...(p.items ?? []));
+        if (!p.more || !p.items?.length) break;
+        from = p.items[p.items.length - 1].seq + 1;
+      }
+      setState((st) => {
+        const base = st.scope === scope ? st.stores : NO_STORES;
+        const cur = base[s];
+        return cur ? { scope, stores: { ...base, [s]: { ...cur, items: mergeItems(cur.items, out) } } } : st;
+      });
+    },
+    [mid, scope],
+  );
+  // one function per session, the same while the conversation is (a stretch's lines keep their memo)
+  const folds = useMemo(() => {
+    const out = new Map<string, (fold: Item) => Promise<void>>();
+    for (const w of windows) if (w.sid !== sid && !out.has(w.sid)) out.set(w.sid, (fold) => expandOther(w.sid, fold));
+    return out;
+  }, [windows, sid, expandOther]);
+
+  const lastStretches = useRef<EarlierStretch[]>(NO_STRETCHES);
+  const stretches = useMemo(() => {
+    const next = plan.shown.map((i): EarlierStretch => {
+      const w = windows[i];
+      return { key: `${i}:${w.sid}`, index: i, sid: w.sid, agent: w.agent, items: split.get(i) ?? [], expandFold: w.sid === sid ? live.expandFold : folds.get(w.sid)! };
+    });
+    const was = lastStretches.current;
+    const same = was.length === next.length && was.every((x, k) => x.key === next[k].key && x.items === next[k].items && x.expandFold === next[k].expandFold);
+    return same ? was : next.length ? next : NO_STRETCHES;
+  }, [plan, windows, split, sid, live.expandFold, folds]);
+  lastStretches.current = stretches;
+
+  // read when loading, so the callback stays the same across pushes
+  const now = useRef({ plan, windows, stores, live, scope });
+  now.current = { plan, windows, stores, live, scope };
+
+  const loadEarlier = useCallback(async () => {
+    const { plan: p, windows: ws, stores: have, live: tr, scope: at } = now.current;
+    if (p.next === undefined) return;
+    const w = ws[p.next];
+    if (w.sid === sid) return tr.loadEarlier();
+    if (inFlight.current || Date.now() < retryAt.current) return;
+    const g = gen.current;
+    const store = have[w.sid];
+    const first = store?.ready ? store.items[0] : undefined;
+    inFlight.current = true;
+    setLoading(true);
+    try {
+      const page = await api<ItemsPage>(`${sessionPath(mid, w.sid)}/items?${PAGE}${first ? `&before_seq=${first.seq}` : ""}`);
+      if (g !== gen.current) return;
+      const got = page.items ?? [];
+      setState((st) => {
+        const base = st.scope === at ? st.stores : NO_STORES;
+        const cur = base[w.sid];
+        // an empty page ends it whatever it says: asking again from the same place would get the same
+        return { scope: at, stores: { ...base, [w.sid]: { items: mergeItems(cur?.items ?? [], got), hasMore: Boolean(page.has_more) && got.length > 0, ready: true } } };
+      });
+      setError("");
+      retryAt.current = 0;
+      wait.current = 0;
+    } catch (e) {
+      if (g !== gen.current) return;
+      wait.current = Math.min(wait.current ? wait.current * 2 : RETRY_MS, RETRY_MAX_MS);
+      retryAt.current = Date.now() + wait.current;
+      setError(sessionLoadError(errorText(e)));
+    } finally {
+      if (g === gen.current) {
+        inFlight.current = false;
+        setLoading(false);
+      }
+    }
+  }, [mid, sid]);
+
+  const retry = () => {
+    retryAt.current = 0;
+    wait.current = 0;
+    setError("");
+    void loadEarlier();
+  };
+
+  // what the chat around them reads (useEarlierStretches): before paint, so it keeps its place as they come in above
+  const hasMore = plan.next !== undefined;
+  useLayoutEffect(() => report(scope, { hasMore, loading, loadEarlier, stretches }), [report, scope, hasMore, loading, loadEarlier, stretches]);
+
   if (!stretches.length && !error) return null;
   return (
     <>
       {error && (
         <div role="alert" className="flex flex-col items-center gap-2 py-2 text-center" data-engine-stretch-error>
-          <p className="text-[13px] text-ink-2 [overflow-wrap:anywhere]">{t("chat-lines.engine_earlier_failed", { error })}</p>
-          {onRetry && <Button onClick={onRetry} icon="retry">{t("chat-chatview.retry")}</Button>}
+          <p className="text-[13px] text-ink-2 [overflow-wrap:anywhere]">{t("chat-engine.earlier_failed", { error })}</p>
+          <Button onClick={retry} icon="retry">{t("chat-chatview.retry")}</Button>
         </div>
       )}
       {stretches.map((s) => <StretchLines key={s.key} mid={mid} stretch={s} offscreen={offscreen} />)}
     </>
   );
-}
+});
 
-const StretchLines = memo(function StretchLines({ mid, stretch, offscreen }: { mid: string; stretch: EarlierStretch; offscreen?: (line: ChatLine) => ((section: HTMLElement) => () => void) | undefined }) {
+const StretchLines = memo(function StretchLines({ mid, stretch, offscreen }: { mid: string; stretch: EarlierStretch; offscreen?: Offscreen }) {
   const base = useChatContext();
   const actions = useChatActions();
   const { items, key, sid } = stretch;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { engineSwitchHome, engineSwitchOf, planStretches, splitStretches, stretchComplete, stretchesKey, stretchWindows, type StretchSource } from "./engine-switch";
+import { planStretches, stretchComplete, type StretchSource } from "./engine-stretches";
+import { engineSwitchHome, engineSwitchOf, splitStretches, stretchesKey, stretchWindows } from "./engine-switch";
 import { parseUserText } from "./turns";
 import type { EngineLeg, Item, Session } from "./types";
 

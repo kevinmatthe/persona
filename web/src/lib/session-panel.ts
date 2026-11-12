@@ -14,7 +14,7 @@ import { ALL_EFFORTS, defaultModel, launcherAgent, modelName, typedModelOffered,
 import { validModelId } from "./model-id";
 import { cleanSetup, type PanelConfig, type PanelModel, type PanelProvider, type PanelState } from "./model-panel";
 import { canSwitchModel, isCurrentModel, modelBusy, sessionLauncher } from "./model-switch";
-import { currentModelRow, engineSwitchable, modelLabel, otherEngine, pendingEngine, sessionEngine, type ModelList } from "./session-models";
+import { currentModelRow, engineSwitchable, modelLabel, pendingEngine, sessionEngine, type ModelList } from "./session-models";
 import type { Launcher, Session } from "./types";
 
 const hasFast = (s: Session) => Boolean(s.service_tiers?.some((x) => x.id === "priority"));
@@ -62,6 +62,9 @@ export interface PanelOptions {
 /** Whether `s` may move to another launcher of its engine: on a hub that does it, a Claude Code Agent whose model the
  *  app switches (one in a terminal; the node refuses the rest, `switch_unsupported`). */
 export const switchesLauncher = (s: Session, o: PanelOptions): boolean => Boolean(o.switching) && sessionEngine(s) === "claude" && canSwitchModel(s);
+
+/** The engine a conversation moves to from `engine` ("" for an engine that doesn't switch). */
+export const otherEngine = (engine: string): string => (engine === "claude" ? "codex" : engine === "codex" ? "claude" : "");
 
 /** Whether `s` may move to a launcher of `engine`, the other engine, with its next message (#5054). */
 export const switchesEngine = (s: Session, engine: string, o: PanelOptions): boolean =>

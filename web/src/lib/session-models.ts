@@ -198,9 +198,6 @@ export const sessionEngine = (s: Session): string => agentId(sessionAgent(s).age
  *  docs/protocol/protocol.md). */
 export const ENGINE_SWITCH_FEATURE = "engine_switch";
 
-/** The engine a conversation moves to from `engine` ("" for an engine that doesn't switch). */
-export const otherEngine = (engine: string): string => (engine === "claude" ? "codex" : engine === "codex" ? "claude" : "");
-
 /** Whether `s` may move to the other engine on a hub with ENGINE_SWITCH_FEATURE: a running Claude Code Agent whose model
  *  the app switches (one in a terminal, as for another launcher, #5035), or a Codex Agent in a terminal (its own row: a
  *  Codex app thread or a runtime's session has a source). The node refuses the rest (`switch_unsupported`). */

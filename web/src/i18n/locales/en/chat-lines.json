@@ -30,8 +30,6 @@
   "model_changed": "Model changed from {from} to {to}",
   "engine_switched": "Switched from {from} to {to}",
   "engine_handoff_view": "View handoff context",
-  "engine_handoff_title": "Handoff — the context summary sent to the new engine at switch time (not part of the chat transcript; shown only here)",
   "engine_continued": "Continued from summary",
-  "engine_resumed": "session resumed",
-  "engine_earlier_failed": "Couldn't load the earlier part of this conversation: {error}"
+  "engine_resumed": "session resumed"
 }

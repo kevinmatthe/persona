@@ -1,20 +1,22 @@
-// The earlier stretches of a conversation that moved between Claude Code and Codex (#5054, lib/engine-switch.ts): the
-// sessions its row names (Session.engine_history) are read here, read only and lazily, so the chat reads as one
-// conversation. Nothing loads until the live stretch is whole (its own pages come from useTranscript, untouched); then
-// each "load earlier" goes to the newest stretch not yet whole: its session's newest page, then its older pages
-// (`before_seq`), as scrolling up loads a session's own. A stretch shows only once every later one is whole, so nothing
-// ever moves in between what is on screen. A session that ran several stretches (A → B → A) is split by their times.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, errorText, sessionPath } from "../../lib/api";
-import { planStretches, splitStretches, stretchesKey, stretchWindows, type StretchSource } from "../../lib/engine-switch";
-import { sessionLoadError } from "../../lib/session-link";
-import { mergeItems } from "../../lib/turns";
-import type { EngineLeg, Item, ItemsPage } from "../../lib/types";
+// The earlier stretches of a conversation that moved between Claude Code and Codex (#5054, lib/engine-switch.ts), as
+// the chat around them sees them. This part is on the first screen and small: the stretches' windows, the live
+// stretch's items (all the transcript's, unless the live session ran an earlier stretch too: A → B → A), and what the
+// stretches' own module (EarlierStretches.tsx, loaded only for a conversation that switched) last said. That module
+// reads the other sessions, read only and lazily, draws the earlier stretches above the live one and says whether
+// anything older is left and how to load it. Until it has, the live transcript's own pages load as in any chat.
+import { useCallback, useMemo, useRef, useState } from "react";
+import { splitStretches, stretchesKey, stretchWindows, type StretchWindow } from "../../lib/engine-switch";
+import type { EngineLeg, Item } from "../../lib/types";
 
-const PAGE = "turns=2&fold_work=1&lazy_images=1";
-/** After a page fails, loading waits this long before asking again (scrolling at the top asks on every tick), doubling up to the cap. */
-const RETRY_MS = 3000;
-const RETRY_MAX_MS = 30_000;
+/** What the chat's own transcript (useTranscript, the live session's) gives the stretches. */
+export interface LiveTranscript {
+  items: Item[];
+  hasMore: boolean;
+  loading: boolean;
+  loadingEarlier: boolean;
+  loadEarlier: () => Promise<void>;
+  expandFold: (fold: Item) => Promise<void>;
+}
 
 /** One earlier stretch as the chat draws it: its session's items in it, and how its folds open. */
 export interface EarlierStretch {
@@ -28,38 +30,43 @@ export interface EarlierStretch {
   expandFold: (fold: Item) => Promise<void>;
 }
 
-/** What the chat's own transcript (useTranscript, the live session's) gives this. */
-export interface LiveTranscript {
-  items: Item[];
+/** What the stretches' module tells the chat, each time it changes. */
+export interface StretchesReport {
   hasMore: boolean;
   loading: boolean;
-  loadingEarlier: boolean;
   loadEarlier: () => Promise<void>;
-  expandFold: (fold: Item) => Promise<void>;
+  /** The earlier stretches drawn, oldest first: a new array whenever what they draw changes. */
+  stretches: EarlierStretch[];
+}
+
+/** The stretches' module's props (EarlierStretches.tsx). */
+export interface StretchesHost {
+  mid: string;
+  sid: string;
+  /** Identifies the conversation's stretches: a report for another is not used. */
+  scope: string;
+  windows: StretchWindow[];
+  live: LiveTranscript;
+  /** The live session's items by stretch (splitStretches) when it ran several, the same arrays while they hold the same
+   *  items; empty when it ran only the live one. */
+  liveSplit: Map<number, Item[]>;
+  report: (scope: string, r: StretchesReport) => void;
 }
 
 export interface Stitched {
-  /** The live stretch's items: all the transcript's, unless the live session ran an earlier stretch too. */
+  /** The live stretch's items. */
   liveItems: Item[];
-  /** The earlier stretches shown, oldest first. */
+  /** The earlier stretches drawn, oldest first. */
   stretches: EarlierStretch[];
   /** Anything older left to load, the live session's own pages included. */
   hasMore: boolean;
   loadingEarlier: boolean;
   /** Loads what comes next going back: the live session's older page, or the next stretch's. */
   loadEarlier: () => Promise<void>;
-  /** The last earlier stretch's page that failed, in words ("" when none). */
-  error: string;
-  retry: () => void;
+  /** The stretches' module's props; null for a conversation that never switched. */
+  host: StretchesHost | null;
 }
 
-interface Store {
-  items: Item[];
-  hasMore: boolean;
-  ready: boolean;
-}
-
-const NO_STORES: Record<string, Store> = {};
 const NO_STRETCHES: EarlierStretch[] = [];
 
 function sameItems(a: readonly Item[] | undefined, b: readonly Item[]): boolean {
@@ -71,134 +78,32 @@ export function useEarlierStretches(mid: string, sid: string, history: readonly 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const windows = useMemo(() => stretchWindows(history, sid), [key, sid]);
   const scope = `${mid}\u0000${sid}\u0000${key}`;
-  const [state, setState] = useState<{ scope: string; stores: Record<string, Store> }>({ scope, stores: NO_STORES });
-  const stores = state.scope === scope ? state.stores : NO_STORES;
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const gen = useRef(0);
-  const inFlight = useRef(false);
-  const retryAt = useRef(0);
-  const wait = useRef(0);
-  useEffect(() => {
-    gen.current++;
-    inFlight.current = false;
-    retryAt.current = 0;
-    wait.current = 0;
-    setLoading(false);
-    setError("");
-  }, [scope]);
-
-  const liveSource = useMemo<StretchSource>(() => ({ items: live.items, hasMore: live.hasMore, ready: !live.loading }), [live.items, live.hasMore, live.loading]);
-  const sourceOf = useCallback((s: string): StretchSource | undefined => (s === sid ? liveSource : stores[s]), [sid, liveSource, stores]);
-  const plan = useMemo(() => planStretches(windows, sourceOf), [windows, sourceOf]);
-
-  // Each session's items by stretch; an array whose items did not change stays the same, so its lines are not built again.
+  const [said, setSaid] = useState<{ scope: string; r: StretchesReport } | null>(null);
+  const report = said?.scope === scope ? said.r : undefined;
+  const hear = useCallback((at: string, r: StretchesReport) => setSaid({ scope: at, r }), []);
+  // The live session's items by stretch when it ran several (A → B → A); an array whose items did not change stays the
+  // same, so its lines are not built again.
+  const several = windows.filter((w) => w.sid === sid).length > 1;
   const lastSplit = useRef(new Map<number, Item[]>());
-  const split = useMemo(() => {
+  const liveSplit = useMemo(() => {
     const out = new Map<number, Item[]>();
-    for (const s of new Set(windows.map((w) => w.sid))) {
-      const src = sourceOf(s);
-      for (const [i, items] of splitStretches(src?.items ?? [], windows, s)) {
-        const was = lastSplit.current.get(i);
-        out.set(i, sameItems(was, items) ? was! : items);
-      }
+    if (!several) return out;
+    for (const [i, items] of splitStretches(live.items, windows, sid)) {
+      const was = lastSplit.current.get(i);
+      out.set(i, sameItems(was, items) ? was! : items);
     }
     return out;
-  }, [windows, sourceOf]);
-  lastSplit.current = split;
-
-  const expandOther = useCallback(
-    async (s: string, fold: Item) => {
-      if (!fold.fold) return;
-      const g = gen.current;
-      let from = fold.seq;
-      const out: Item[] = [];
-      for (let n = 0; n < 20; n++) {
-        const p = await api<ItemsPage>(`${sessionPath(mid, s)}/items?from_seq=${from}&through_seq=${fold.fold.through_seq}&lazy_images=1`);
-        if (g !== gen.current) return;
-        out.push(...(p.items ?? []));
-        if (!p.more || !p.items?.length) break;
-        from = p.items[p.items.length - 1].seq + 1;
-      }
-      setState((st) => {
-        const base = st.scope === scope ? st.stores : NO_STORES;
-        const cur = base[s];
-        return cur ? { scope, stores: { ...base, [s]: { ...cur, items: mergeItems(cur.items, out) } } } : st;
-      });
-    },
-    [mid, scope],
+  }, [several, windows, live.items, sid]);
+  lastSplit.current = liveSplit;
+  const host = useMemo<StretchesHost | null>(
+    () => (windows.length ? { mid, sid, scope, windows, live, liveSplit, report: hear } : null),
+    // `live` is read through: its items, pages and loads are what the module plans with
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mid, sid, scope, windows, liveSplit, hear, live.items, live.hasMore, live.loading, live.loadEarlier, live.expandFold],
   );
-  // one function per session, the same while the conversation is (a stretch's lines keep their memo)
-  const folds = useMemo(() => {
-    const out = new Map<string, (fold: Item) => Promise<void>>();
-    for (const w of windows) if (w.sid !== sid && !out.has(w.sid)) out.set(w.sid, (fold) => expandOther(w.sid, fold));
-    return out;
-  }, [windows, sid, expandOther]);
-
-  const lastStretches = useRef<EarlierStretch[]>(NO_STRETCHES);
-  const stretches = useMemo(() => {
-    const next = plan.shown.map((i): EarlierStretch => {
-      const w = windows[i];
-      return { key: `${i}:${w.sid}`, index: i, sid: w.sid, agent: w.agent, items: split.get(i) ?? [], expandFold: w.sid === sid ? live.expandFold : folds.get(w.sid)! };
-    });
-    const was = lastStretches.current;
-    const same = was.length === next.length && was.every((x, k) => x.key === next[k].key && x.items === next[k].items && x.expandFold === next[k].expandFold);
-    return same ? was : next.length ? next : NO_STRETCHES;
-  }, [plan, windows, split, sid, live.expandFold, folds]);
-  lastStretches.current = stretches;
-
-  const liveWindow = windows.at(-1);
-  const liveItems = !liveWindow || windows.filter((w) => w.sid === sid).length < 2 ? live.items : (split.get(liveWindow.index) ?? live.items);
-
-  // read when loading, so the callback stays the same across pushes
-  const now = useRef({ plan, windows, stores, live, scope });
-  now.current = { plan, windows, stores, live, scope };
-
-  const loadEarlier = useCallback(async () => {
-    const { plan: p, windows: ws, stores: have, live: tr, scope: at } = now.current;
-    if (!ws.length) return tr.loadEarlier();
-    if (p.next === undefined) return;
-    const w = ws[p.next];
-    if (w.sid === sid) return tr.loadEarlier();
-    if (inFlight.current || Date.now() < retryAt.current) return;
-    const g = gen.current;
-    const store = have[w.sid];
-    const first = store?.ready ? store.items[0] : undefined;
-    inFlight.current = true;
-    setLoading(true);
-    try {
-      const page = await api<ItemsPage>(`${sessionPath(mid, w.sid)}/items?${PAGE}${first ? `&before_seq=${first.seq}` : ""}`);
-      if (g !== gen.current) return;
-      const got = page.items ?? [];
-      setState((st) => {
-        const base = st.scope === at ? st.stores : NO_STORES;
-        const cur = base[w.sid];
-        // an empty page ends it whatever it says: asking again from the same place would get the same
-        return { scope: at, stores: { ...base, [w.sid]: { items: mergeItems(cur?.items ?? [], got), hasMore: Boolean(page.has_more) && got.length > 0, ready: true } } };
-      });
-      setError("");
-      retryAt.current = 0;
-      wait.current = 0;
-    } catch (e) {
-      if (g !== gen.current) return;
-      wait.current = Math.min(wait.current ? wait.current * 2 : RETRY_MS, RETRY_MAX_MS);
-      retryAt.current = Date.now() + wait.current;
-      setError(sessionLoadError(errorText(e)));
-    } finally {
-      if (g === gen.current) {
-        inFlight.current = false;
-        setLoading(false);
-      }
-    }
-  }, [mid, sid]);
-
-  const retry = useCallback(() => {
-    retryAt.current = 0;
-    wait.current = 0;
-    setError("");
-    void loadEarlier();
-  }, [loadEarlier]);
-
-  if (!windows.length) return { liveItems: live.items, stretches: NO_STRETCHES, hasMore: live.hasMore, loadingEarlier: live.loadingEarlier, loadEarlier, error: "", retry };
-  return { liveItems, stretches, hasMore: plan.next !== undefined, loadingEarlier: live.loadingEarlier || loading, loadEarlier, error, retry };
+  if (!windows.length) return { liveItems: live.items, stretches: NO_STRETCHES, hasMore: live.hasMore, loadingEarlier: live.loadingEarlier, loadEarlier: live.loadEarlier, host: null };
+  const liveItems = several ? (liveSplit.get(windows.length - 1) ?? live.items) : live.items;
+  // until the module has said (it loads with the chat): the live session's own pages, and something earlier is left
+  if (!report) return { liveItems, stretches: NO_STRETCHES, hasMore: true, loadingEarlier: live.loadingEarlier, loadEarlier: live.loadEarlier, host };
+  return { liveItems, stretches: report.stretches, hasMore: report.hasMore, loadingEarlier: live.loadingEarlier || report.loading, loadEarlier: report.loadEarlier, host };
 }

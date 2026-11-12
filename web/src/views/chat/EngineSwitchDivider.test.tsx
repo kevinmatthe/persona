@@ -35,8 +35,9 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
 });
-const flush = async () => {
-  for (let i = 0; i < 4; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+/** Until `ok` (the panel's module loads with the divider; a loaded machine takes a few turns), at most about a second. */
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 200 && !ok(); i++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
 };
 
 describe("EngineSwitchDivider", () => {
@@ -62,8 +63,9 @@ describe("EngineSwitchDivider", () => {
     const chip = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(chip.title).toBe("查看交接内容");
+    expect(host.querySelector("[data-engine-handoff]")).toBeNull(); // folded: no panel drawn
     act(() => chip.click());
-    await flush();
+    await until(() => host.querySelector("[data-engine-handoff]") !== null);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
     const panel = host.querySelector("[data-engine-handoff]")!;
     expect(panel.id).toBe(chip.getAttribute("aria-controls"));
@@ -74,6 +76,7 @@ describe("EngineSwitchDivider", () => {
     root = createRoot(host);
     act(() => root.render(<EngineSwitchDivider sw={sw()} id="seg:u1#0" mid="m" sid="s" />));
     expect(host.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("[data-engine-handoff]")).not.toBeNull(); // the panel's module is in: drawn at once
     act(() => host.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
     expect(host.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
   });
@@ -91,10 +94,10 @@ describe("EngineSwitchDivider", () => {
     const cut = user(1, `${block('from="claude" to="codex"', `${HANDOFF}\n…（已截断，共 9000 字节）`)}Now add the tests.`, { full_size: 9000 }); // i18n-ignore: the hub's cut note
     act(() => root.render(<EngineSwitchDivider sw={sw({ text: `${HANDOFF}\n…（已截断，共 9000 字节）` })} id="x" item={cut} mid="m" sid="s" />)); // i18n-ignore: the hub's cut note
     act(() => host.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
-    await flush();
+    await until(() => host.querySelector("[data-engine-handoff]") !== null);
     expect(host.querySelector("[data-engine-handoff] pre")?.textContent).toBe(HANDOFF); // without the hub's note
     act(() => host.querySelector<HTMLButtonElement>("[data-full-text]")!.click());
-    await flush();
+    await until(() => host.querySelector("[data-full-text]") === null);
     expect(fullItem).toHaveBeenCalledWith("m", "s", "u1#0");
     expect(host.querySelector("[data-engine-handoff] pre")?.textContent).toBe(whole);
     expect(host.querySelector("[data-full-text]")).toBeNull();

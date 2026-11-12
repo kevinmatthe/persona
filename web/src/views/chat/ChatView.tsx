@@ -88,7 +88,6 @@ import { useChatScrollbar } from "./useChatScrollbar";
 import { ChatLineView, closedRecap, closeRecap, OpenRecapLine } from "./Lines";
 import { useTranscript } from "./useTranscript";
 import { useEarlierStretches } from "./useEarlierStretches";
-import { EarlierStretches } from "./EarlierStretches";
 import { ArchiveCloseDialog, CloseAgentDialog, DeleteSessionDialog, HeaderModeButton, ModeChips, RenameDialog, RenameSpaceDialog, SessionInfoDialog } from "./SessionDialogs";
 import { showsInHeader } from "../../lib/header-mode";
 import { archiveItems } from "../AgentMenus";
@@ -139,6 +138,8 @@ const SharingDialog = lazyOverlay(() => import("../../sharing/SharingDialog").th
 const TerminalPanel = lazy(() => loadTerminal().then((m) => ({ default: m.TerminalPanel })));
 // only on an Agent's page opened from a conversation's hand-off card (#5096): not part of the first screen
 const HandoffBack = lazy(() => import("./HandoffBack").then((m) => ({ default: m.HandoffBack })));
+// only in a conversation that moved between Claude Code and Codex (#5054): its earlier sessions, read above the live one
+const EarlierStretches = lazy(() => import("./EarlierStretches"));
 
 const NO_FEED: FeedItem[] = [];
 /** How many earlier pages a link to a child loads looking for the exchange its card is in. */
@@ -855,7 +856,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   useEffect(() => {
     loadEarlierNearTop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tr.items, earlier.stretches, earlier.hasMore, earlier.loadingEarlier]);
+  }, [tr.items, earlier.stretches, earlier.hasMore, earlier.loadingEarlier, earlier.loadEarlier]);
 
   const toEnd = () => {
     const el = scroller.current;
@@ -1583,7 +1584,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
             <LiveClockContext.Provider value={countClock}>
             <ChatContext.Provider value={ctx}>
               <CardConversation.Provider value={assistant ? sid : ""}>
-              {!assistant && <EarlierStretches mid={mid} stretches={earlier.stretches} error={earlier.error} onRetry={earlier.retry} offscreen={offscreen} />}
+              {earlier.host && <Suspense fallback={null}><EarlierStretches {...earlier.host} offscreen={offscreen} /></Suspense>}
               {assistant
                 ? displayLines(lines, feed, tr.hasMore ? loadedFrom(tr.items) : undefined).flatMap((d) => [
                     ...failedBefore(d.kind === "chat" ? d.id : ""),
