@@ -17,11 +17,12 @@ import (
 )
 
 // Reading a pasted provider configuration (#5193, docs/assistant/model-config.md): the provider wizard sends what the
-// user pasted, the manager reads it as shell lines, a Claude Code settings.json, a curl command or a cindy provider
-// import (models_import_formats.go), and answers drafts of POST /api/v1/launchers bodies with what each leaves out
-// and why, and the stored providers each would meet. Nothing is stored. The env is mapped as importing an alias maps
-// it (newImportGroup, importEnv). The text holds keys: it is never logged, and the answer carries none of its
-// secrets but the key itself (the user pasted it into the form it stays in).
+// user pasted, the manager reads it as shell lines, a Claude Code settings.json, a curl command, a cindy provider
+// import (models_import_formats.go) or a provider import link (models_import_link.go), and answers drafts of
+// POST /api/v1/launchers bodies with what each leaves out and why, and the stored providers each would meet. Nothing
+// is stored. The env is mapped as importing an alias maps it (newImportGroup, importEnv). The text holds keys: it is
+// never logged, and the answer carries none of its secrets but the key itself (the user pasted it into the form it
+// stays in).
 
 // What one paste answers at most: drafts (too_many beyond), notes in all (the top-level ones and every draft's),
 // variables and headers one draft names as left out; and what it reads at most: shell lines' claude launches and
@@ -56,6 +57,10 @@ const (
 	noteArgsLeftOut   = "args_left_out"     // the arguments look like they hold a secret or a setting's text: none kept
 	noteHeaderUnread  = "header_unreadable" // a header whose name is no plain token: left out, unnamed
 	noteTooMany       = "too_many"          // more than pasteMost drafts: the rest left out
+	noteLinkInvalid   = "link_invalid"      // an import link damaged or breaking a v1 rule: nothing used (the field's path)
+	noteLinkVersion   = "link_version"      // an import link of another format version (named when a number)
+	noteLinkTooLong   = "link_too_long"     // an import link, or the JSON it carries, longer than cindy takes
+	noteLinkField     = "link_field"        // an import link with a field v1 does not define: nothing used (its path)
 )
 
 // pasteNote is something said about the pasted text or one draft: Line is 1-based, of the text with CRLF made LF.
@@ -165,12 +170,15 @@ func (res *pasteResult) note(code string, line int, name string) {
 	addNote(&res.Notes, pasteNote{Code: code, Line: line, Name: name})
 }
 
-// parsePaste reads text as what it looks like: JSON (starting with { or [) is a cindy import or a settings.json;
-// else a curl command when the first command line runs curl; else shell lines.
+// parsePaste reads text as what it looks like: an import link (models_import_link.go); JSON (starting with { or [),
+// a cindy import or a settings.json; else a curl command when the first command line runs curl; else shell lines.
 func parsePaste(text string) pasteResult {
 	text = strings.ReplaceAll(strings.TrimPrefix(text, "\uFEFF"), "\r\n", "\n")
 	var res pasteResult
-	if t := strings.TrimSpace(text); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+	t := strings.TrimSpace(text)
+	if link, ok := parseLink(t); ok {
+		res = link
+	} else if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
 		res = parsePasteJSON([]byte(t))
 	} else {
 		lines := shellcmd.Lines(text)
