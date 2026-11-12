@@ -82,12 +82,10 @@ def metadata(source):
         raise ValueError('Release tag cannot be used as a safe asset label')
     number = android_version_code(time.time())
     sha = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-    match = re.match(r'^v?(\d+\.\d+\.\d+)', label)
     values = {
         'PERSONA_RELEASE_VERSION_CODE': str(number),
         'PERSONA_RELEASE_VERSION_NAME': label.removeprefix('v'),
         'PERSONA_SOURCE_SHA': sha,
-        'PERSONA_MAC_VERSION': match.group(1) if match else '0.1.0',
     }
     with open(os.environ['GITHUB_ENV'], 'a') as out:
         for key, value in values.items():
