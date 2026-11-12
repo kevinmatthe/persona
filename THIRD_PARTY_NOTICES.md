@@ -469,6 +469,12 @@ after `formatDuration`). Two files are ported from cindy's code with changes: `w
 `packages/maker-shared/src/thinkingText.ts`) and `web/src/views/chat/ThinkingText.tsx` (from
 `apps/desktop/src/renderer/components/chat/ThinkingText.tsx`), with tests from cindy's.
 
+Switching an Agent between Claude Code and Codex in the web chat follows cindy's design at the owner's request
+(2026-11-12): the "Switch Agent?" confirmation (`web/src/views/chat/EngineSwitchDialog.tsx`, after cindy's
+`ConfirmDialog` and `agentSwitchConfirmation.ts`: layout, order, wording and when it asks) and the switch divider with
+its handoff panel (`web/src/views/chat/EngineSwitchDivider.tsx`, after the agent switch card in cindy's `SystemCard.tsx`:
+layout, states and wording). No code is copied for those.
+
 https://github.com/makecindy/cindy
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use these files except in compliance with
