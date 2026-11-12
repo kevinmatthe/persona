@@ -96,22 +96,21 @@ if (carried) {
   window.history.replaceState(window.history.state, "", carried.rest);
 }
 
-// A provider import link (`/settings?tab=models#import=…`, #5420) may hold a key: it leaves the address bar the same way,
-// before anything else runs (the Back list, bookmarks, a link copied from the address bar), and waits in memory until
-// Settings › Model providers opens Add on it (lib/import-link.ts). Opened in a tab already on that page (pasted into
-// its address bar), only the fragment changes and nothing loads: it is taken then, its history entry replaced.
-function takeImportLinkHere(loading: boolean) {
+// A provider import link (`/settings?tab=models#import=…`, #5420) leaves the address bar the same way and waits in
+// memory for Settings › Model providers (lib/import-link.ts says why). Pasted into the address bar of a page already
+// open, only the fragment changes and nothing loads: it is taken then.
+function takeImportLinkHere() {
   const importing = takeImportLink(window.location.href);
   if (!importing) return;
-  // on an open page another address goes through the router, or it would go on showing the page the link was pasted
-  // over (navigate does nothing for the same address, whose fragment is all that goes)
-  if (loading || importing.rest === location.pathname + location.search) window.history.replaceState(window.history.state, "", importing.rest);
-  else navigate(stripBase(importing.rest), true);
+  // the fragment goes first: navigate does nothing for an address that differs only in it, and on an open page another
+  // address goes through the router, or the page the link was pasted over would stay
+  window.history.replaceState(window.history.state, "", location.pathname + location.search);
+  navigate(stripBase(importing.rest), true);
   holdImportLink(importing.text);
 }
 if (typeof window !== "undefined") {
-  takeImportLinkHere(true);
-  window.addEventListener("hashchange", () => takeImportLinkHere(false));
+  takeImportLinkHere();
+  window.addEventListener("hashchange", takeImportLinkHere);
 }
 
 const workspaceActions = { onWorkspaceMenu: openWorktreeActions };

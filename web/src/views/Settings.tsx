@@ -720,9 +720,7 @@ function Models() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   useEffect(() => {
     dropImportLink();
-    return onImportLink(() => {
-      const l = importLinkHeld();
-      if (!l) return;
+    return onImportLink((l) => {
       dropImportLink();
       setOpen(null);
       setCopying(null);

@@ -4,8 +4,8 @@
 // saves it themselves; the hub reads it like a pasted configuration (POST /api/v1/launchers/import/parse). The hub never
 // hands out a stored key, so a link has one only when the user pastes it into the copy dialog. Built from what
 // GET /api/v1/launchers lists: no new hub route, and the link is checked only by the hub that opens it.
-import { BASE } from "./base";
 import { managedProvider } from "./compatibility";
+import { here } from "./hubs";
 import { providerTitle } from "./provider-names";
 import type { ProviderModel, ProviderView } from "./providers";
 
@@ -29,9 +29,9 @@ export interface LinkPayload {
 /** How much of the model list fits in the link: all of it, the IDs alone, or none (whoever opens it fetches them). */
 export type ModelsFit = "full" | "ids" | "none";
 
-/** The most a link carries, as the hub and cindy read one: the fragment, and the JSON in it once decoded. */
+/** The most a link's fragment carries, as the hub and cindy read one. It is the tighter of their two limits: a fragment
+ *  this long decodes to at most 24 570 bytes of JSON, within their 24 KiB for it. */
 const MAX_FRAGMENT = 32 * 1024;
-const MAX_JSON = 24 * 1024;
 const MAX_MODELS = 256;
 const MAX_NAME = 60;
 const MAX_ID = 256;
@@ -45,7 +45,7 @@ const PROTOCOL = { messages: "anthropic-messages", responses: "openai-responses"
 /** The cindy protocol a provider is reached by: a Claude Code launcher's Messages, or a direct API's; null for the
  *  rest (Codex, Antigravity, omp), which no cindy endpoint brings back as they are. */
 function protocolOf(p: LinkSource): string | null {
-  if ((p.kind ?? "launcher") === "api") return PROTOCOL[p.api ?? "messages"] ?? null;
+  if (p.kind === "api") return PROTOCOL[p.api ?? "messages"] ?? null;
   return !p.agent || p.agent === "claude" ? PROTOCOL.messages : null;
 }
 
@@ -112,11 +112,10 @@ function base64url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Whether a payload fits a link: its JSON within cindy's limit, and the whole fragment within the hub's. */
+/** Whether a payload fits a link: its fragment, the JSON's UTF-8 in base64url (4 characters for every 3 bytes), within
+ *  MAX_FRAGMENT. */
 function fits(payload: LinkPayload): boolean {
-  const n = utf8(JSON.stringify(payload)).length;
-  const encoded = Math.floor(n / 3) * 4 + [0, 2, 3][n % 3]!;
-  return n <= MAX_JSON && FRAGMENT_HEAD.length + encoded <= MAX_FRAGMENT;
+  return FRAGMENT_HEAD.length + Math.ceil((utf8(JSON.stringify(payload)).length * 4) / 3) <= MAX_FRAGMENT;
 }
 
 /** The key as a link carries it (trimmed), or null when it can't be one: blank, with spaces, line breaks or control
@@ -155,5 +154,5 @@ export function encodeImportData(payload: LinkPayload): string {
 
 /** The link that opens Add provider with `data` on this hub's web page. */
 export function importLinkHref(data: string): string {
-  return `${location.origin}${BASE}/settings?tab=models#${FRAGMENT_HEAD}${data}`;
+  return `${here()}/settings?tab=models#${FRAGMENT_HEAD}${data}`;
 }

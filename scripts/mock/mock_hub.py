@@ -11536,11 +11536,7 @@ def _link_bad(path=None, code="link_invalid"):
 
 def _link_query(q):
     """q read as URLSearchParams reads it ({name: [values]}), and whether a %-escape in it is broken (that breaks a link)."""
-    params = {}
-    for pair in filter(None, q.split("&")):
-        name, _, value = pair.partition("=")
-        params.setdefault(unquote(name.replace("+", " ")), []).append(unquote(value.replace("+", " ")))
-    return params, bool(re.search(r"%(?![0-9A-Fa-f]{2})", q))
+    return parse_qs(q, keep_blank_values=True), bool(re.search(r"%(?![0-9A-Fa-f]{2})", q))
 
 
 def _link_data(q, key, need_v):
@@ -11632,14 +11628,13 @@ def _link_endpoint(e, path):
     if "apiKey" in e and not _link_key(e["apiKey"], 4096): _link_bad(path + ".apiKey")
     base = _link_url(e.get("baseUrl"))
     if base is None: _link_bad(path + ".baseUrl")
-    models_url = _link_url(e["modelsUrl"]) if "modelsUrl" in e else None
-    if "modelsUrl" in e and models_url != base: _link_bad(path + ".modelsUrl")  # the same origin
+    if "modelsUrl" in e and _link_url(e["modelsUrl"]) != base: _link_bad(path + ".modelsUrl")  # the same origin
     h = e.get("headers")
     if "headers" in e and (not isinstance(h, dict) or not 0 < len(h) <= 24 or any(
             not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}", k) or not isinstance(v, str) or _js_len(v) > 2048 or LINK_CONTROL.search(v)
             for k, v in h.items())):
         _link_bad(path + ".headers")
-    return {"protocol": e["protocol"], "targets": t, "base": base, "models_url": models_url, "key": "apiKey" in e, "headers": "headers" in e}
+    return {"protocol": e["protocol"], "targets": t, "base": base, "apiKey": "apiKey" in e, "headers": "headers" in e}
 
 
 def _link_serves(e, method):
@@ -11667,11 +11662,11 @@ def _link_custom(c):
     eps = c.get("endpoints")
     if not isinstance(eps, list) or not 0 < len(eps) <= 8: _link_bad("endpoints")
     eps = [_link_endpoint(e, "endpoints[%d]" % i) for i, e in enumerate(eps)]
-    if method == "none" and any(not _link_loopback(e["base"]) or e["models_url"] and not _link_loopback(e["models_url"]) for e in eps):
-        _link_bad("auth")  # with no key, a link could send the prompts anywhere
+    # with no key, a link could send the prompts anywhere (a modelsUrl is on its baseUrl's host)
+    if method == "none" and any(not _link_loopback(e["base"]) for e in eps): _link_bad("auth")
     for i, e in enumerate(eps):
-        for f in ("key", "headers"):
-            if method != "apiKey" and e[f]: _link_bad("endpoints[%d].%s" % (i, "apiKey" if f == "key" else f))
+        for f in ("apiKey", "headers"):
+            if method != "apiKey" and e[f]: _link_bad("endpoints[%d].%s" % (i, f))
     for i, e in enumerate(eps):
         if method == "oauth" and "pi" in (e["targets"] or ()): _link_bad("endpoints[%d].targets" % i)
     for agent in LINK_AGENTS:
@@ -11711,17 +11706,17 @@ def _paste_link(t):
     whose fragment has import."""
     head = t[:8].lower()
     if re.search(r"\s", t) or not head.startswith(("cindy://", "http://", "https://")): return None
-    rest = t[len("cindy://"):]
-    frag = t.partition("#")[2]
-    if not head.startswith("cindy://") and "import" not in _link_query(frag)[0]: return None
+    cindy = head.startswith("cindy://")
+    part = t[len("cindy://"):] if cindy else t.partition("#")[2]  # what follows cindy://, a web link's fragment
+    if not cindy and "import" not in _link_query(part)[0]: return None
     try:
-        if len((rest if head.startswith("cindy://") else frag).encode()) > LINK_MOST: _link_bad(code="link_too_long")
-        if head.startswith("cindy://"):
-            path, sep, q = rest.partition("?")
-            if not sep or path != "provider/import" or "#" in rest: _link_bad()
+        if len(part.encode()) > LINK_MOST: _link_bad(code="link_too_long")
+        if cindy:
+            path, sep, q = part.partition("?")
+            if not sep or path != "provider/import" or "#" in part: _link_bad()
             data = _link_data(q, "data", True)
         else:
-            data = _link_data(frag, "import", False)
+            data = _link_data(part, "import", False)
         obj = _link_payload(data)
     except LinkRefused as refused:
         return [], [refused.args[0]]

@@ -26,16 +26,16 @@ export function takeImportLink(href: string): { text: string; rest: string } | n
 }
 
 let held: string | null = null;
-const listeners = new Set<() => void>();
+const listeners = new Set<(text: string) => void>();
 
 /** Keeps the link opened until Settings › Model providers takes it, telling it when it is open already. */
 export function holdImportLink(text: string) {
   held = text;
-  listeners.forEach((l) => l());
+  listeners.forEach((l) => l(text));
 }
 
-/** Calls `fn` each time a link is held (a page already open on the providers opened with one); returns the stop. */
-export function onImportLink(fn: () => void): () => void {
+/** Calls `fn` with each link held (a page already open on the providers opened with one); returns the stop. */
+export function onImportLink(fn: (text: string) => void): () => void {
   listeners.add(fn);
   return () => void listeners.delete(fn);
 }

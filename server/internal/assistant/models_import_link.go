@@ -78,22 +78,26 @@ var linkPriority = map[string]map[string]int{
 // an http(s) address whose fragment has import. ok is false for anything else, which the other readers take (an
 // address with another fragment is no link).
 func parseLink(t string) (res pasteResult, ok bool) {
-	if strings.ContainsFunc(t, unicode.IsSpace) {
+	cindy := hasPrefixFold(t, "cindy://")
+	if !cindy && !hasPrefixFold(t, "http://") && !hasPrefixFold(t, "https://") || strings.ContainsFunc(t, unicode.IsSpace) {
 		return res, false
 	}
 	var data string
 	var n pasteNote
-	switch {
-	case hasPrefixFold(t, "cindy://"):
+	if cindy {
 		data, n = cindyLinkData(t[len("cindy://"):])
-	case hasPrefixFold(t, "http://") || hasPrefixFold(t, "https://"):
-		_, frag, found := strings.Cut(t, "#")
-		if params, _ := linkQuery(frag); !found || params["import"] == nil {
+	} else {
+		// a web link: only its fragment is read, what comes before it is the user's own web address
+		_, frag, _ := strings.Cut(t, "#")
+		params, broken := linkQuery(frag)
+		switch {
+		case params["import"] == nil:
 			return res, false
+		case len(frag) > linkMost:
+			n = pasteNote{Code: noteLinkTooLong}
+		default:
+			data, n = linkParams(params, broken, "import", false)
 		}
-		data, n = webLinkData(frag)
-	default:
-		return res, false
 	}
 	var payload []byte
 	var obj map[string]any
@@ -127,22 +131,14 @@ func cindyLinkData(rest string) (string, pasteNote) {
 	if !found || path != "provider/import" || strings.Contains(rest, "#") {
 		return "", pasteNote{Code: noteLinkInvalid}
 	}
-	return linkParams(query, "data", true)
+	params, broken := linkQuery(query)
+	return linkParams(params, broken, "data", true)
 }
 
-// webLinkData is the data of a web link's fragment (frag), or why the link is refused: anything but import once and v
-// at most once (no v reads as 1). What comes before the fragment is the user's own web address, not read.
-func webLinkData(frag string) (string, pasteNote) {
-	if len(frag) > linkMost {
-		return "", pasteNote{Code: noteLinkTooLong}
-	}
-	return linkParams(frag, "import", false)
-}
-
-// linkParams is a link's data (the parameter named data in q) when q has it once, v once (or, unless needV, never)
-// and nothing else, and v is 1; else the note why the link is refused (link_version names a v that is a number).
-func linkParams(q, data string, needV bool) (string, pasteNote) {
-	params, broken := linkQuery(q)
+// linkParams is a link's data (the parameter named data) when params (linkQuery's, not broken) have it once, v once
+// (or, unless needV, at most once: no v reads as 1) and nothing else, and v is 1; else the note why the link is refused
+// (link_version names a v that is a number).
+func linkParams(params url.Values, broken bool, data string, needV bool) (string, pasteNote) {
 	v := params["v"]
 	invalid := broken || len(params[data]) != 1 || len(v) > 1 || needV && len(v) == 0
 	for k := range params {
@@ -307,10 +303,9 @@ func checkLinkCustom(obj map[string]any) pasteNote {
 			return n
 		}
 	}
-	if method == "none" && slices.ContainsFunc(eps, func(e linkEndpoint) bool {
-		return !linkLoopback(e.baseURL) || e.modelsURL != nil && !linkLoopback(e.modelsURL)
-	}) {
-		return linkInvalid("auth") // with no key, a link could send the prompts to anyone
+	// with no key, a link could send the prompts to anyone (a modelsUrl is on its baseUrl's host: checkLinkEndpoint)
+	if method == "none" && slices.ContainsFunc(eps, func(e linkEndpoint) bool { return !linkLoopback(e.baseURL) }) {
+		return linkInvalid("auth")
 	}
 	for i, e := range eps {
 		switch {
@@ -368,12 +363,12 @@ func checkLinkAuth(obj map[string]any) (string, pasteNote) {
 }
 
 // linkEndpoint is what the provider's checks need of a checked endpoint: its protocol and targets (nil: its
-// protocol's agents), addresses (modelsURL nil without one), and whether it carries a key or headers.
+// protocol's agents), address, and whether it carries a key or headers.
 type linkEndpoint struct {
-	protocol           string
-	targets            []string
-	baseURL, modelsURL *url.URL
-	key, headers       bool
+	protocol     string
+	targets      []string
+	baseURL      *url.URL
+	key, headers bool
 }
 
 // checkLinkEndpoint checks one endpoint (path: endpoints[i]) in cindy's order.
@@ -390,7 +385,7 @@ func checkLinkEndpoint(v any, path string) (linkEndpoint, pasteNote) {
 		return e, linkInvalid(path + ".protocol")
 	}
 	if t, has := obj["targets"]; has {
-		if e.targets, ok = linkTargets(t); !ok {
+		if e.targets, ok = linkDistinct(t, linkAgents); !ok || len(e.targets) == 0 {
 			return e, linkInvalid(path + ".targets")
 		}
 	}
@@ -407,7 +402,7 @@ func checkLinkEndpoint(v any, path string) (linkEndpoint, pasteNote) {
 		return e, linkInvalid(path + ".baseUrl")
 	}
 	if m, has := obj["modelsUrl"]; has {
-		if e.modelsURL = linkURL(m); e.modelsURL == nil || linkOrigin(e.modelsURL) != linkOrigin(e.baseURL) {
+		if u := linkURL(m); u == nil || linkOrigin(u) != linkOrigin(e.baseURL) {
 			return e, linkInvalid(path + ".modelsUrl")
 		}
 	}
@@ -419,21 +414,21 @@ func checkLinkEndpoint(v any, path string) (linkEndpoint, pasteNote) {
 	return e, pasteNote{}
 }
 
-// linkTargets is an endpoint's targets: agents cindy knows, at least one, none twice.
-func linkTargets(v any) ([]string, bool) {
+// linkDistinct is v as a list of strings from known, none twice (an endpoint's targets, a model's thinking levels).
+func linkDistinct(v any, known []string) ([]string, bool) {
 	list, ok := v.([]any)
-	if !ok || len(list) == 0 {
+	if !ok {
 		return nil, false
 	}
-	var targets []string
-	for _, t := range list {
-		s, _ := t.(string)
-		if !slices.Contains(linkAgents, s) || slices.Contains(targets, s) {
+	var out []string
+	for _, e := range list {
+		s, _ := e.(string)
+		if !slices.Contains(known, s) || slices.Contains(out, s) {
 			return nil, false
 		}
-		targets = append(targets, s)
+		out = append(out, s)
 	}
-	return targets, true
+	return out, true
 }
 
 // checkLinkModels checks an endpoint's models (absent or null: none): at most linkModelsMost, no id twice.
@@ -510,16 +505,8 @@ func checkLinkModel(v any, path string) (string, pasteNote) {
 	}
 	var levels []string
 	if hasEfforts {
-		list, ok := efforts.([]any)
-		if !ok {
+		if levels, ok = linkDistinct(efforts, linkEfforts); !ok {
 			return "", linkInvalid(path + ".reasoningEfforts")
-		}
-		for _, e := range list {
-			s, _ := e.(string)
-			if !slices.Contains(linkEfforts, s) || slices.Contains(levels, s) {
-				return "", linkInvalid(path + ".reasoningEfforts")
-			}
-			levels = append(levels, s)
 		}
 	}
 	if s, _ := def.(string); hasDefault && !slices.Contains(levels, s) {

@@ -77,6 +77,12 @@ func TestParseLinkSharedCases(t *testing.T) {
 	}
 }
 
+// The smallest custom provider a link takes, and its one endpoint.
+const (
+	linkTestEndpoint = `{"protocol":"openai-chat","baseUrl":"https://example.invalid/v1"}`
+	linkTestPayload  = `{"kind":"custom","name":"Example","endpoints":[` + linkTestEndpoint + `]}`
+)
+
 // webLink is the web's link to payload.
 func webLink(payload string) string {
 	return "https://persona.example.invalid/settings?tab=models#import=" + base64.RawURLEncoding.EncodeToString([]byte(payload))
@@ -85,7 +91,7 @@ func webLink(payload string) string {
 // linkJSONOf is a valid custom payload of exactly n bytes (JSON blanks fill it up).
 func linkJSONOf(t *testing.T, n int) string {
 	t.Helper()
-	const p = `{"kind":"custom","name":"Example","endpoints":[{"protocol":"openai-chat","baseUrl":"https://example.invalid/v1"}]}`
+	const p = linkTestPayload
 	if n < len(p) {
 		t.Fatalf("%d bytes is shorter than the payload", n)
 	}
@@ -133,7 +139,7 @@ func TestParseLinkSizes(t *testing.T) {
 // name that is no plain word, not a version that is no number.
 func TestParseLinkNamesNoValue(t *testing.T) {
 	const s = "sk-example-hidden"
-	ep := `{"protocol":"openai-chat","baseUrl":"https://example.invalid/v1"}`
+	const ep = linkTestEndpoint
 	custom := func(fields string) string { return webLink(`{"kind":"custom","name":"Example",` + fields + `}`) }
 	links := []string{
 		custom(`"auth":{"method":"apiKey","apiKey":"` + s + `\nX"},"endpoints":[` + ep + `]`),
@@ -250,10 +256,9 @@ func TestParseLinkRules(t *testing.T) {
 
 // A link without a key is the usual one and says nothing of it; a key the draft can't take (a blank inside) is noted.
 func TestParseLinkKeyNotes(t *testing.T) {
-	ep := `"endpoints":[{"protocol":"openai-chat","baseUrl":"https://example.invalid/v1"}]`
 	for payload, want := range map[string]string{
-		`{"kind":"custom","name":"Example",` + ep + `}`:                                                `null`,
-		`{"kind":"custom","name":"Example","auth":{"method":"apiKey","apiKey":"FAKE KEY"},` + ep + `}`: `[{"code":"no_key"}]`,
+		linkTestPayload: `null`,
+		`{"kind":"custom","name":"Example","auth":{"method":"apiKey","apiKey":"FAKE KEY"},"endpoints":[` + linkTestEndpoint + `]}`: `[{"code":"no_key"}]`,
 	} {
 		res := parsePaste(webLink(payload))
 		if len(res.Drafts) != 1 || res.Drafts[0].Provider.APIKey != "" {
@@ -268,8 +273,7 @@ func TestParseLinkKeyNotes(t *testing.T) {
 // What is a link: either scheme in any case; a blank inside, or another fragment, leaves the text to the other readers;
 // a broken %-escape breaks the link.
 func TestParseLinkRecognized(t *testing.T) {
-	payload := `{"kind":"custom","name":"Example","endpoints":[{"protocol":"openai-chat","baseUrl":"https://example.invalid/v1"}]}`
-	data := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	data := base64.RawURLEncoding.EncodeToString([]byte(linkTestPayload))
 	for text, link := range map[string]bool{
 		"CINDY://provider/import?v=1&data=" + data:                     true,
 		"HTTPS://persona.example.invalid/settings#import=" + data:      true,
