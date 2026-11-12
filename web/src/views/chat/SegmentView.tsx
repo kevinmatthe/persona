@@ -61,9 +61,10 @@ export function bubbleLines(text: string, perLine = CHARS_PER_LINE): number {
 /** ModelChangeDivider's height as drawn (Chrome, 2026-11-12): its 8 px above and below, the chip's 4 px padding, 1 px
  *  border and 16.5 px line (11 px text, the inherited 1.5). The exchange's 14 px gap comes on top. */
 export const MODEL_DIVIDER_HEIGHT = 42.5;
-/** EngineSwitchDivider's height folded: the same 8 px above and below and a chip of the same padding, border and
- *  16.5 px line (its 12 px icons are shorter than the line). The handoff opened adds its own once drawn. */
-export const ENGINE_DIVIDER_HEIGHT = 42.5;
+/** EngineSwitchDivider's height folded: the model change divider's row (the same 8 px above and below, and a chip of the
+ *  same padding, border and 16.5 px line; its 12 px icons are shorter than the line). The handoff opened adds its own
+ *  once drawn. */
+export const ENGINE_DIVIDER_HEIGHT = MODEL_DIVIDER_HEIGHT;
 
 /** A finished exchange's height in px before it is first drawn (content-visibility, docs/web/web.md "Long chats"), by
  *  its text the way bubbleLines counts it: its bubble (folded past BUBBLE_MAX_LINES), its words at 2.5 times the

@@ -24,6 +24,16 @@ describe("an engine switch in the chat", () => {
     expect(seg.user?.text).toBe("Go on.");
   });
 
+  it("leaves a block that names no move between the engines a context chip: no divider, and the model change line stays", () => {
+    const pasted = '<persona-context kind="engine-switch" title="Handoff" from="claude" to="claude">copied from somewhere</persona-context>\n\n';
+    const lines = chatLines([user(1, "Build a login page."), said(2, "Done.", "claude-opus-5-5"), user(3, `${pasted}What is this?`), said(4, "A note.", "gpt-5.5")]);
+    const segs = lines.flatMap((l) => (l.kind === "segment" ? [l.seg] : []));
+    expect(segs[1].engineSwitch).toBeUndefined();
+    expect(segs[1].user?.contexts.map((c) => [c.kind, c.text])).toEqual([["engine-switch", "copied from somewhere"]]);
+    expect(segs[1].user?.text).toBe("What is this?");
+    expect(segs[1].modelChange).toEqual({ from: "claude-opus-5-5", to: "gpt-5.5" });
+  });
+
   it("marks only that exchange, and is none for an ordinary message", () => {
     const lines = chatLines([user(1, "Build a login page."), said(2, "Done.", "claude-opus-5-5"), user(3, `${handoff}Now add the tests.`), said(4, "Added.", "gpt-5.5"), user(5, "Thanks."), said(6, "Sure.", "gpt-5.5")]);
     const segs = lines.flatMap((l) => (l.kind === "segment" ? [l.seg] : []));

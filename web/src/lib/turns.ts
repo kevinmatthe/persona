@@ -6,7 +6,7 @@ import { CONTEXT_RE, FILE_RE, PERSONA_SERVERS, canonicalTool } from "./compatibi
 import { t } from "../i18n";
 import { errorSignature, isRetryText, parseAPIError, type APIErrorInfo } from "./api-errors";
 import { foldCompactions, isCompaction } from "./compaction";
-import { ENGINE_SWITCH_KIND, engineSwitchOf, type EngineSwitch } from "./engine-switch";
+import { engineSwitchOf, type EngineSwitch } from "./engine-switch";
 import { injectedOf } from "./injected";
 import { markModelChanges, type ModelChange } from "./model-change";
 import { sourceKey, sourceOf, userSourceSentinel } from "./message-source";
@@ -282,8 +282,13 @@ export function segments(items: Item[], results?: ReadonlyMap<string, Item>): Se
       else {
         const p = parseUserText(it.text ?? "");
         cur.user!.text = cur.user!.text ? `${cur.user!.text}\n${p.text}` : p.text;
-        cur.user!.contexts.push(...p.contexts.filter((c) => c.kind !== "message-source" && c.kind !== ENGINE_SWITCH_KIND));
-        for (const c of p.contexts) cur.engineSwitch ??= engineSwitchOf(c);
+        for (const c of p.contexts) {
+          if (c.kind === "message-source") continue;
+          // a real switch is the divider, not a chip; a block that only looks like one (pasted, naming no engines) stays a chip
+          const sw = engineSwitchOf(c);
+          if (sw) cur.engineSwitch ??= sw;
+          else cur.user!.contexts.push(c);
+        }
         if (p.files.length) cur.user!.files = [...(cur.user!.files ?? []), ...p.files];
         if (p.photos.length) cur.user!.photos = [...new Set([...(cur.user!.photos ?? []), ...p.photos])];
       }
