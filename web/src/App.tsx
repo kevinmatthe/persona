@@ -13,6 +13,7 @@ import { acceptHubs, here, rememberHub, takeHubs } from "./lib/hubs";
 import { useSessionPanels } from "./lib/panel-memory";
 import { resolveTab, tabOfSessionLink, tabPagePane } from "./lib/herdr-tree";
 import { resolveSessionLink, sessionLinkRoute, type SessionLink } from "./lib/session-link";
+import { engineSwitchHome } from "./lib/engine-switch";
 import { followSubagentLink, splitSubagentLink } from "./lib/subagent-link";
 import { href, inWorkView, navigate, onLinkClick, type Route, routePath, useRoute, withWorkView } from "./lib/router";
 import { agentChatKey, noteChatShown, personaChatKey } from "./lib/recent-chats";
@@ -208,6 +209,10 @@ function pageTarget(s: State, route: Route): PageTarget | undefined {
   // the lookup of an unlisted chat), the session itself until then
   const parent = rows.find((r) => r.session_id === route.sid)?.folded_under;
   if (parent && parent !== route.sid) return { link: undefined, to: routePath(withWorkView({ name: "session", mid: route.mid, sid: parent }, inWorkView(route))), mid: route.mid, sid: undefined, parent };
+  // an earlier session of a conversation that moved between Claude Code and Codex (#5054): the conversation's own row,
+  // whose chat reads that session's stretch in its place
+  const home = engineSwitchHome(rows, route.sid);
+  if (home) return { link: undefined, to: routePath(withWorkView({ name: "session", mid: route.mid, sid: home.session_id }, inWorkView(route))), mid: route.mid, sid: undefined };
   // an old `/s/…` link of a pane in a tab becomes that tab's `/t/…`
   const tab = tabOfSessionLink(rows, route);
   // a `/s/…` link with only the front of an id (the 8-character ones shown everywhere, #2464): the whole id's link;

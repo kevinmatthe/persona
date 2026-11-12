@@ -55,6 +55,8 @@ const sessions: Session[] = [
   row(TWIN_B, { activity_at: "2026-11-02T10:00:00Z" }),
   // a child session folded under s1 (#5120): a card in s1's chat, never a page of its own
   row("kid1", { folded_under: "s1", is_subagent: true, parent_session_id: "s1" }),
+  // a conversation that moved from Claude Code to Codex (#5054): its Claude session is not listed, the Codex one runs it
+  row("conv", { agent: "codex", engine_history: [{ session_id: "conv-claude", agent: "claude", until: "2026-11-12T09:00:00Z" }] }),
 ];
 const answers: Record<string, unknown> = { "/api/v1/sessions": { sessions }, "/api/v1/machines": { machines } };
 
@@ -164,6 +166,12 @@ describe("the shell's session links", () => {
     expect(location.pathname).toBe("/s/mac/s2");
     expect(drawn.chatSid).toBe("s2");
     act(() => doneSubagentLink("mac", "s2"));
+  });
+
+  it("opens an earlier engine's session of a conversation as the conversation's chat", async () => {
+    await open("/s/mac/conv-claude");
+    expect(location.pathname).toBe("/s/mac/conv");
+    expect(drawn.chatSid).toBe("conv");
   });
 
   it("opens the pane a /t route names, not the tab's most urgent one", async () => {
